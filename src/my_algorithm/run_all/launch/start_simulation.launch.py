@@ -95,7 +95,7 @@ def generate_launch_description():
         # Arguments
         launch.actions.DeclareLaunchArgument(name='host', default_value='localhost'),
         launch.actions.DeclareLaunchArgument(name='port', default_value='2000'),
-        launch.actions.DeclareLaunchArgument(name='town', default_value='Town04'),      #这里修改地图信息
+        launch.actions.DeclareLaunchArgument(name='town', default_value='Town01'),      #这里修改地图信息
         launch.actions.DeclareLaunchArgument(name='timeout', default_value='10'),
         launch.actions.DeclareLaunchArgument(name='synchronous_mode_wait_for_vehicle_control_command', default_value='False'),
         launch.actions.DeclareLaunchArgument(name='fixed_delta_seconds', default_value='0.05'),

@@ -16,6 +16,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include <rviz_common/panel.hpp>
 #include <std_msgs/msg/bool.hpp>
+#include <std_msgs/msg/float64.hpp>
 #include <carla_ros_scenario_runner_types/srv/execute_scenario.hpp>
 #include <geometry_msgs/msg/pose.hpp>
 #include <geometry_msgs/msg/twist.hpp>
@@ -54,6 +55,7 @@ protected Q_SLOTS:
   void carlaTogglePlayPause();
   void overrideVehicleControl(int state);
   void executeScenario();
+  void setTargetSpeed();
 
   void updateCameraPos();
   void currentViewControllerChanged();
@@ -86,10 +88,13 @@ protected:
   QLineEdit *mHeadingLabel;
   QCheckBox *mOverrideVehicleControl;
   QComboBox *mScenarioSelection;
+  QLineEdit *mTargetSpeedInput;
+  QPushButton *mSetTargetSpeedButton;
   IndicatorWidget *mIndicatorWidget;
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr mTwistPublisher;
   rclcpp::Publisher<carla_msgs::msg::CarlaControl>::SharedPtr mCarlaControlPublisher;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr mEgoVehicleControlManualOverridePublisher;
+  rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr mTargetSpeedPublisher;
   rclcpp::Subscription<carla_msgs::msg::CarlaStatus>::SharedPtr mCarlaStatusSubscriber;
   rclcpp::Subscription<carla_msgs::msg::CarlaEgoVehicleStatus>::SharedPtr mEgoVehicleStatusSubscriber;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr mEgoVehicleOdometrySubscriber;

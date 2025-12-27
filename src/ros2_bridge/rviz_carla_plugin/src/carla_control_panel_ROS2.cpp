@@ -101,6 +101,18 @@ CarlaControlPanel::CarlaControlPanel(QWidget *parent)
 
   carlaLayout->addRow("Scenario Execution", carlaRow1Layout);
 
+  // Target Speed Row
+  QHBoxLayout *targetSpeedLayout = new QHBoxLayout;
+  mTargetSpeedInput = new QLineEdit();
+  mTargetSpeedInput->setPlaceholderText("Speed (km/h)");
+  targetSpeedLayout->addWidget(mTargetSpeedInput);
+  
+  mSetTargetSpeedButton = new QPushButton("Set Speed");
+  targetSpeedLayout->addWidget(mSetTargetSpeedButton);
+  connect(mSetTargetSpeedButton, SIGNAL(released()), this, SLOT(setTargetSpeed()));
+  
+  carlaLayout->addRow("Target Speed", targetSpeedLayout);
+
   QHBoxLayout *synchronous_layout = new QHBoxLayout;
   QPixmap pixmap(":/icons/play.png");
   QIcon iconPlay(pixmap);
@@ -181,6 +193,8 @@ void CarlaControlPanel::onInitialize()
     = _node->create_subscription<carla_msgs::msg::CarlaEgoVehicleStatus>("/carla/ego_vehicle/vehicle_status", 1000, std::bind(&CarlaControlPanel::egoVehicleStatusChanged, this, _1));
   mEgoVehicleOdometrySubscriber
     = _node->create_subscription<nav_msgs::msg::Odometry>("/carla/ego_vehicle/odometry", 1000, std::bind(&CarlaControlPanel::egoVehicleOdometryChanged, this, _1));
+
+  mTargetSpeedPublisher = _node->create_publisher<std_msgs::msg::Float64>("/carla/ego_vehicle/target_speed", 10);
 
   auto qos_latch_10 = rclcpp::QoS( rclcpp::QoSInitialization(RMW_QOS_POLICY_HISTORY_KEEP_LAST, 10));
   qos_latch_10.durability(RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL);
@@ -408,6 +422,18 @@ void CarlaControlPanel::sendVel()
     msg.angular.y = 0;
     msg.angular.z = mAngularVelocity;
     mTwistPublisher->publish(msg);
+  }
+}
+
+void CarlaControlPanel::setTargetSpeed()
+{
+  bool ok;
+  double speed = mTargetSpeedInput->text().toDouble(&ok);
+  if (ok) {
+    std_msgs::msg::Float64 msg;
+    msg.data = speed;
+    mTargetSpeedPublisher->publish(msg);
+    RCLCPP_INFO(rclcpp::get_logger("rviz_carla_plugin"), "Published target speed: %f", speed);
   }
 }
 

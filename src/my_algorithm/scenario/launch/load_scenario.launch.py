@@ -83,8 +83,7 @@ def generate_launch_description():
         ),
         launch_arguments={
             'role_name': launch.substitutions.LaunchConfiguration('role_name'),
-            'spawn_point_ego_vehicle': launch.substitutions.LaunchConfiguration('spawn_point'),
-            'objects_definition_file': os.path.join(scenario_pkg, 'config', 'objects.json')
+            'spawn_point_ego_vehicle': launch.substitutions.LaunchConfiguration('spawn_point')
         }.items()
     )
 
