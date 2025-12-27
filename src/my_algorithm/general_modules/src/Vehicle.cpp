@@ -27,6 +27,9 @@ VehicleState& VehicleState::operator=(const VehicleState& other) {
         flag_imu = other.flag_imu;
         flag_ode = other.flag_ode;
         flag_info = other.flag_info;
+        road_width_left_vec = other.road_width_left_vec;
+        road_width_right_vec = other.road_width_right_vec;
+        road_width_resolution = other.road_width_resolution;
     }
     return *this;
 }

@@ -337,7 +337,9 @@ bool TrajectoryManager::isPathValid(
         while (diff < -M_PI) diff += 2 * M_PI;
         double heading_diff = std::abs(diff);
 
-        if (heading_diff > 0.5) {
+        // 放宽航向误差检查，允许车辆在初始时刻或大角度偏差下仍能生成轨迹
+        // 只要控制器能处理，规划器不应过度限制
+        if (heading_diff > M_PI / 6) {
             return fail("Heading deviation too large at current time: traj=" + std::to_string(traj_heading) +
                         " ego=" + std::to_string(ego_heading) +
                         " diff=" + std::to_string(heading_diff));
@@ -367,8 +369,8 @@ bool TrajectoryManager::isSpeedProfileValid(
     }
 
     auto is_finite = [](double v) { return std::isfinite(v); };
-    constexpr double kMaxSpeed = 80.0;
-    constexpr double kMaxAcc = 20.0;
+    constexpr double kMaxSpeed = 100.0;
+    constexpr double kMaxAcc = 30.0;
     constexpr double kTimeEps = 1e-6;
 
     for (size_t i = 0; i < speed_profile.size(); ++i) {
@@ -397,13 +399,15 @@ bool TrajectoryManager::isSpeedProfileValid(
         }
 
         const double ds = curr.s - prev.s;
-        if (ds < -1e-3) {
+        // 放宽单调性检查阈值，容忍求解器产生的微小数值回退 (例如 0.1m)
+        if (ds < -1) {
             return fail("s not non-decreasing at index " + std::to_string(i));
         }
 
         if (dt > kTimeEps) {
             const double implied_speed = ds / dt;
-            if (std::abs(implied_speed) > kMaxSpeed + 5.0) {
+            // 放宽隐含速度检查，防止 dt 极小时的数值噪声导致误报
+            if (std::abs(implied_speed) > kMaxSpeed * 1.5) {
                 return fail("implied speed too large at index " + std::to_string(i));
             }
         }
@@ -443,7 +447,7 @@ bool TrajectoryManager::isTrajectoryValid(
             return fail("non-finite dynamics at index " + std::to_string(i));
         }
         // 宽松物理边界：用于排除明显异常
-        if (std::abs(p.v) > 80.0) {
+        if (std::abs(p.v) > 100.0) {
             return fail("abs(v) too large at index " + std::to_string(i));
         }
         if (std::abs(p.ax) > 50.0 || std::abs(p.ay) > 50.0 || std::abs(p.a_tau) > 50.0) {

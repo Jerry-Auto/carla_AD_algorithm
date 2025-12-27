@@ -24,6 +24,12 @@ install(
   DESTINATION share/${PROJECT_NAME}
 )
 
+# 安装Python脚本
+install(
+  PROGRAMS script/road_width_pub.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   ament_lint_auto_find_test_dependencies()

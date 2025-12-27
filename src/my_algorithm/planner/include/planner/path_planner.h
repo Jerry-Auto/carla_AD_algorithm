@@ -24,7 +24,21 @@ public:
     void setLogCallback(std::function<void(const std::string&)> callback) {
         log_callback_ = callback;
     }
-    
+    void set_road_width(const std::shared_ptr<AD_algorithm::general::VehicleState>& vehicle_state) {
+        _road_width_left_vec.clear();
+        _road_width_right_vec.clear();
+        // 假如是空的，或者数量不足，那么设置固定车道宽度
+        if(!vehicle_state || vehicle_state->road_width_left_vec.size() < 200 || vehicle_state->road_width_right_vec.size() < 200){
+            _road_width_left_vec = std::vector<double>(200,config_.lane_width/2);
+            _road_width_right_vec = std::vector<double>(200,config_.lane_width/2);
+            _road_width_resolution = 1.0;
+            return;
+        }
+        _road_width_left_vec = vehicle_state->road_width_left_vec;
+        _road_width_right_vec = vehicle_state->road_width_right_vec;
+        _road_width_resolution = vehicle_state->road_width_resolution;
+    }
+
     bool set_config(const PathPlannerConfig& config) {
         if (!config.validate()) {
             log("Invalid configuration in set_config", "ERROR");
@@ -76,6 +90,9 @@ private:
 
     std::function<void(const std::string&)> log_callback_;
     bool _enable_log = true;
+    std::vector<double> _road_width_left_vec;
+    std::vector<double> _road_width_right_vec;
+    double _road_width_resolution = 1.0;
 };
 
 } // namespace planner

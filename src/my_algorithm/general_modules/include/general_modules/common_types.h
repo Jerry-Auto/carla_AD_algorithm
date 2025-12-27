@@ -73,6 +73,12 @@ struct VehicleState {
     bool flag_imu;
     bool flag_ode;
     bool flag_info;
+    
+    // 道路边界信息（相对于车辆当前位置/车道）
+    // 存储前方道路宽度的采样点，resolution为采样间隔
+    std::vector<double> road_width_left_vec;
+    std::vector<double> road_width_right_vec;
+    double road_width_resolution = 1.0; 
 
     VehicleState& operator=(const VehicleState& other);
 };

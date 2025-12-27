@@ -67,6 +67,11 @@ bool LateralLQRController::compute_control_cmd(
     double q_psi = 10.0 + 90.0 * std::min(_vx / 10.0, 1.0); 
     _matrix_Q(2,2) = q_psi;
 
+    // 动态调整 R 矩阵权重：高速时加大对控制量的惩罚，抑制震荡
+    // 基础 R=1.0, 速度每增加 10m/s, R 增加 5.0
+    double r_gain = 1.0 + 10.0 * (_vx / 10.0);
+    _matrix_R(0, 0) = r_gain;
+
     // 更新状态矩阵A (4x4)
     // x' = Ax + Bu
     // x = [ed, ed_dot, ephi, ephi_dot]^T
@@ -135,13 +140,25 @@ bool LateralLQRController::compute_control_cmd(
     double u = u_fb + delta_ff;
 
     // 6. 后处理
-    // 6.1 幅值限制
-    double max_u = 35.0 * M_PI / 180.0;
+    // 6.1 动态幅值限制
+    // 低速 35度，高速(30m/s) 降至 5度
+    double max_steer_deg = 35.0;
+    if (_vx > 10.0) {
+        max_steer_deg = 35.0 - (_vx - 10.0) * 1.5;
+        max_steer_deg = std::max(max_steer_deg, 5.0);
+    }
+    double max_u = max_steer_deg * M_PI / 180.0;
     double u_clamped = std::min(std::max(u, -max_u), max_u);
 
-    // 6.2 增量限制
+    // 6.2 动态增量限制
+    // 与速度成反比：速度越高，允许的转角变化率越小
+    // 基准: 10m/s 时允许 10度/帧
+    double max_rate_deg = 60.0 / std::max(_vx*_vx, 1.0);
+    max_rate_deg = std::min(std::max(max_rate_deg, 1.0), 10.0);
+    double current_max_delta = max_rate_deg * M_PI / 180.0;
+
     double delta_u = u_clamped - _last_steer_cmd;
-    delta_u = std::min(std::max(delta_u, -_max_delta_steer), _max_delta_steer);
+    delta_u = std::min(std::max(delta_u, -current_max_delta), current_max_delta);
     u = _last_steer_cmd + delta_u;
 
     // 更新记忆

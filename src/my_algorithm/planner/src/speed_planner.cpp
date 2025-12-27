@@ -159,6 +159,12 @@ std::vector<STPoint> SpeedPlanner::planSpeed(
         _qp_speed_profile.assign(_dp_speed_profile.begin(), _dp_speed_profile.end());
     }
     
+    for (size_t i = 1; i < _qp_speed_profile.size(); ++i) {
+        if (_qp_speed_profile[i].s < _qp_speed_profile[i-1].s) {
+            _qp_speed_profile[i].s = _qp_speed_profile[i-1].s; // 强制拉平
+        }
+    }
+    
     // 5. 加密速度剖面
     log("Increasing speed profile density...");
     increaseSpeedProfile(_qp_speed_profile,config_.final_path_interval);
@@ -168,7 +174,6 @@ std::vector<STPoint> SpeedPlanner::planSpeed(
     
     log("Speed planning completed in " + std::to_string(duration.count()) + " ms");
     log("Generated " + std::to_string(_qp_speed_profile.size()) + " speed profile points");
-    
     return _qp_speed_profile;
 }
 

@@ -207,6 +207,20 @@ def generate_launch_description():
                         'goal_topic': '/move_base_simple/goal'
                     }]
                 ),
+
+                # 启动道路宽度发布节点（/carla/road_boundaries）
+                launch_ros.actions.Node(
+                    package='scenario',
+                    executable='road_width_pub.py',
+                    name='road_width_publisher',
+                    output='screen',
+                    parameters=[{
+                        'carla_host': launch.substitutions.LaunchConfiguration('host'),
+                        'carla_port': launch.substitutions.LaunchConfiguration('port'),
+                        'role_name': launch.substitutions.LaunchConfiguration('role_name'),
+                        'publish_topic': '/carla/road_boundaries'
+                    }]
+                ),
             ]
         ),
         

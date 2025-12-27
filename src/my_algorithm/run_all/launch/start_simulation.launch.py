@@ -162,6 +162,28 @@ def generate_launch_description():
             }.items()
         ),
 
+        # 5.1 Road width publisher (reused from scenario/load_scenario.launch.py)
+        # Keep the implementation only in load_scenario; here we include it with other features disabled
+        launch.actions.IncludeLaunchDescription(
+            launch.launch_description_sources.PythonLaunchDescriptionSource(
+                os.path.join(get_package_share_directory('scenario'), 'launch', 'load_scenario.launch.py')
+            ),
+            launch_arguments={
+                'host': launch.substitutions.LaunchConfiguration('host'),
+                'port': launch.substitutions.LaunchConfiguration('port'),
+                'role_name': launch.substitutions.LaunchConfiguration('role_name'),
+
+                # Disable duplicated parts (run_all already starts them)
+                'enable_scenario_runner': 'False',
+                'enable_spawn_ego': 'False',
+                'enable_available_scenarios': 'False',
+                'enable_vehicle_info_checker': 'False',
+
+                # Only keep road width publishing
+                'enable_road_width_pub': 'True',
+            }.items()
+        ),
+
         # 6. User's PNC Agent (Planning & Control)
         # Ensure vehicle info is published
         launch_ros.actions.Node(

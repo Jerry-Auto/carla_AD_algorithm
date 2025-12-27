@@ -61,7 +61,17 @@ std::vector<TrajectoryPoint> PathPlanner::planPath(
     FrenetPoint start_point = planning_start_point;
     double offset_s = start_point.s;
     start_point.s = 0.0;
-    
+    // 通过规划起点把道路边界在起点之前的部分裁剪掉
+    size_t boundary_start_index = static_cast<size_t>(offset_s / _road_width_resolution);
+    if (boundary_start_index >= _road_width_left_vec.size()) {
+        log("Offset s exceeds road width vector size", "ERROR");
+        return {};
+    }
+    _road_width_left_vec = std::vector<double>(
+        _road_width_left_vec.begin() + boundary_start_index, _road_width_left_vec.end());
+    _road_width_right_vec = std::vector<double>(
+        _road_width_right_vec.begin() + boundary_start_index, _road_width_right_vec.end());
+        
     // log("Planning start point: s=" + std::to_string(start_point.s) + 
     //     ", l=" + std::to_string(start_point.l));
     
@@ -90,7 +100,7 @@ std::vector<TrajectoryPoint> PathPlanner::planPath(
         -config_.lane_width * 0.5,//道路边界下界，相对于参考线对应的frenet中心线
         sl_obstacles
     );
-    auto sampling_strategy = std::make_shared<PathSamplingStrategy>(config_);
+    auto sampling_strategy = std::make_shared<PathSamplingStrategy>(config_,_road_width_left_vec,_road_width_right_vec);
     auto backtrack_strategy = std::make_shared<DefaultBacktrackStrategy<SLState>>();
     
     // 配置DP规划器
@@ -106,16 +116,16 @@ std::vector<TrajectoryPoint> PathPlanner::planPath(
         sampling_strategy, backtrack_strategy, dp_config
     );
 
-    // 可以使用预设采样网格的接口
-    if(!dp_sampling_grid_){
-        // 只有第一次规划时生成采样网格，后续复用
-        dp_sampling_grid_ = std::make_shared<std::vector<std::vector<SLState>>>(
-            sampling_strategy->generateSamplingGrid(start_state, config_.s_sample_number)
-        );
-    }
+    // // 可以使用预设采样网格的接口
+    // if(!dp_sampling_grid_){
+    //     // 只有第一次规划时生成采样网格，后续复用
+    //     dp_sampling_grid_ = std::make_shared<std::vector<std::vector<SLState>>>(
+    //         sampling_strategy->generateSamplingGrid(start_state, config_.s_sample_number)
+    //     );
+    // }
 
-    auto result = dp_planner.planWithGrid(*dp_sampling_grid_, start_state);
-    // auto result = dp_planner.plan(start_state, config.s_sample_number);//每次都重新生成采样网格，较慢
+    // auto result = dp_planner.planWithGrid(*dp_sampling_grid_, start_state);
+    auto result = dp_planner.plan(start_state, config_.s_sample_number);//每次都重新生成采样网格，较慢
     
     if (!result.success) {
         log("DP planning failed: " + result.message, "ERROR");
@@ -562,8 +572,10 @@ void PathPlanner::generateConvexSpace(
                   << ", dp_l=" << dp_path_[center_index].l << std::endl;
 
         if (dp_path_[center_index].l > obs.l) { // 左侧绕行
-            int start_index = findClosestIndex(obs.s - obs_length/2.0);
-            int end_index = findClosestIndex(obs.s + obs_length/2.0);
+            // 增加纵向缓冲距离，使车辆提前开始变道
+            double longitudinal_buffer = 10.0; 
+            int start_index = findClosestIndex(obs.s - obs_length/2.0 - longitudinal_buffer);
+            int end_index = findClosestIndex(obs.s + obs_length/2.0 + longitudinal_buffer);
             
             std::cout << "[DEBUG] Left bypass. start=" << start_index << ", end=" << end_index << std::endl;
 
@@ -573,8 +585,10 @@ void PathPlanner::generateConvexSpace(
                 l_min[i] = std::max(l_min[i], obs.l + obs_width/2.0 + config_.safety_margin);
             }
         } else { // 右侧绕行
-            int start_index = findClosestIndex(obs.s - obs_length/2.0);
-            int end_index = findClosestIndex(obs.s + obs_length/2.0);
+            // 增加纵向缓冲距离，使车辆提前开始变道
+            double longitudinal_buffer = 10.0;
+            int start_index = findClosestIndex(obs.s - obs_length/2.0 - longitudinal_buffer);
+            int end_index = findClosestIndex(obs.s + obs_length/2.0 + longitudinal_buffer);
             
             std::cout << "[DEBUG] Right bypass. start=" << start_index << ", end=" << end_index << std::endl;
 

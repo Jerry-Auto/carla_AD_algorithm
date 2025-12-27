@@ -142,6 +142,20 @@ def generate_launch_description():
         name='available_scenarios_publisher'
     )
 
+    # 6. 启动道路宽度发布节点
+    road_width_pub_node = launch_ros.actions.Node(
+        package='scenario',
+        executable='road_width_pub.py',
+        name='road_width_publisher',
+        output='screen',
+        parameters=[{
+            'carla_host': launch.substitutions.LaunchConfiguration('host'),
+            'carla_port': launch.substitutions.LaunchConfiguration('port'),
+            'role_name': launch.substitutions.LaunchConfiguration('role_name'),
+            'publish_topic': '/carla/road_boundaries'
+        }]
+    )
+
     return launch.LaunchDescription([
         scenario_runner_path_arg,
         scenario_file_arg,
@@ -170,6 +184,7 @@ def generate_launch_description():
             period=4.0,
             actions=[
                 vehicle_info_checker,
+                road_width_pub_node, # 启动道路宽度发布节点
             ]
         ),
         

@@ -85,8 +85,6 @@ private:
 
 class PathConstraintChecker : public planner::ConstraintCheckerStrategy<SLState> {
 private:
-    double _road_up_boundary;
-    double _road_low_boundary;
     std::vector<SLObstacle> _static_obstacles;
     double _max_curvature = 0.1;  // 最大曲率
     double _max_l_dot = 3.0;  // 最大直线斜率dl/ds
@@ -107,11 +105,13 @@ private:
 class PathSamplingStrategy : public planner::SamplingStrategy<SLState> {
 private:
     double _s_step;      // s方向步长
-    double _l_range;     // l方向采样范围
+    int _num_layers;     
     int _l_samples;      // l方向采样点数
-    int _num_layers;     //
+    std::vector<double> _road_width_left_vec;// l方向采样范围
+    std::vector<double> _road_width_right_vec;
 public:
-    PathSamplingStrategy(const PathPlannerConfig& config);
+    PathSamplingStrategy(const PathPlannerConfig& config,const std::vector<double>& road_width_left_vec,
+                         const std::vector<double>& road_width_right_vec);
     
     std::vector<SLState> generateNextLayer(
         const std::vector<SLState>& current_layer,

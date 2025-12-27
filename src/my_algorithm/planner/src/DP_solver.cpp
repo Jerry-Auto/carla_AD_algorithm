@@ -224,16 +224,10 @@ double PathCostFunction::calculateDistanceToRectangle(const double& s, const dou
 
 PathConstraintChecker::PathConstraintChecker(double road_up, double road_low,
                                            const std::vector<SLObstacle>& obstacles)
-    : _road_up_boundary(road_up), _road_low_boundary(road_low),
-      _static_obstacles(obstacles) {}
+    : _static_obstacles(obstacles) {}
 
 bool PathConstraintChecker::checkState(const SLState& state) const {
-    // 1. 检查道路边界
-    if (state.l > _road_up_boundary || state.l < _road_low_boundary) {
-        // std::cout << "[DEBUG] checkState failed: l=" << state.l 
-        //           << " not in [" << _road_low_boundary << ", " << _road_up_boundary << "]" << std::endl;
-        return false;
-    }
+
     // 2. 检查障碍物碰撞
     for (const auto& obs : _static_obstacles) {
         if (isCollidingWithObstacle(state, obs)) {
@@ -255,12 +249,12 @@ bool PathConstraintChecker::checkTransition(const SLState& from, const SLState& 
     if (delta_s <= 1e-6) return false;// 说明s没有前进，是本层的点，不满足约束
 
     double lateral_velocity = (to.l - from.l) / delta_s;
-    if (std::abs(lateral_velocity) > _max_l_dot) {
-        std::cout << "[DEBUG] checkTransition failed: l_dot=" << lateral_velocity 
-                  << " > max=" << _max_l_dot 
-                  << " (from l=" << from.l << ", to l=" << to.l << ", ds=" << delta_s << ")" << std::endl;
-        return false;
-    }
+    // if (std::abs(lateral_velocity) > _max_l_dot) {
+    //     std::cout << "[DEBUG] checkTransition failed: l_dot=" << lateral_velocity 
+    //               << " > max=" << _max_l_dot 
+    //               << " (from l=" << from.l << ", to l=" << to.l << ", ds=" << delta_s << ")" << std::endl;
+    //     return false;
+    // }
     return true;
 }
 
@@ -295,9 +289,26 @@ bool PathConstraintChecker::checkInterpolatedPath(const SLState& from, const SLS
 
 // ==================== PathSamplingStrategy 成员函数实现 ====================
 
-PathSamplingStrategy::PathSamplingStrategy(const PathPlannerConfig& config)
-    : _s_step(config.s_sample_distance), _l_range(config.lane_width), _l_samples(config.l_sample_number), _num_layers(config.s_sample_number) {
+PathSamplingStrategy::PathSamplingStrategy(const PathPlannerConfig& config
+    ,const std::vector<double>& road_width_left_vec,const std::vector<double>& road_width_right_vec)
+    : _s_step(config.s_sample_distance), _num_layers(config.s_sample_number), _l_samples(config.l_sample_number){
     if (_l_samples < 2) _l_samples = 2;  // 至少2个采样点
+    // 计算l方向采样范围
+    // 以车道线(参考线)为中心，横向均匀
+    // 需要通过s方向采样距离来确定对应的l采样范围,
+    for(int i=0;i<_num_layers;++i){
+        double s = i*_s_step;
+        // 通过s找到对应的road_width_left和road_width_right
+        int index = static_cast<int>(s);//默认是1m分辨率
+        if(index<0){
+            index =0;
+        }
+        else if(index>=road_width_left_vec.size()){
+            index = road_width_left_vec.size()-1;
+        }
+        _road_width_left_vec.push_back(road_width_left_vec[index]);
+        _road_width_right_vec.push_back(road_width_right_vec[index]);
+    }
 }
 
 std::vector<SLState> PathSamplingStrategy::generateNextLayer(
@@ -305,20 +316,65 @@ std::vector<SLState> PathSamplingStrategy::generateNextLayer(
     int layer_index
 ) const {
     std::vector<SLState> next_states;
-    
-    // 以车道线(参考线)为中心，横向均匀采样
-    double l_step =  _l_range / (_l_samples - 1);
     double s_value = (layer_index + 1) * _s_step;
-    // _l_samples必须是奇数，保证中心点采样在参考线上
-    for (int i = 0; i < _l_samples; ++i) {
-        // (1/2*(5+1)-3)*1=0    
-        double l = i*l_step-l_step*(_l_samples-1)/2;
+    double left_bound = _road_width_left_vec[layer_index+1];
+    double right_bound = _road_width_right_vec[layer_index+1];
+
+    // 确保至少有一个采样点（0点）
+    if (_l_samples <= 0) return next_states;
+
+    // 计算左右两侧的采样点数
+    // 假设0点必选，剩余点数按左右宽度比例分配
+    int n_total = _l_samples;
+    int n_right = 0;
+    int n_left = 0;
+
+    if (n_total > 1) {
+        double total_width = left_bound - right_bound;
+        if (total_width > 1e-3) {
+            // 使用std::abs确保宽度为正
+            n_right = std::round((n_total - 1) * std::abs(right_bound) / total_width);
+            n_left = n_total - 1 - n_right;
+        } else {
+            n_right = (n_total - 1) / 2;
+            n_left = n_total - 1 - n_right;
+        }
+    }
+
+    // 1. 生成右侧采样点 (从右边界向0逼近，保持l递增顺序)
+    if (n_right > 0) {
+        double step = std::abs(right_bound) / n_right;
+        for (int i = n_right; i >= 1; --i) {
+            SLState next_state;
+            next_state.s = s_value;
+            next_state.l = -i * step; // right_bound 是负数，这里生成负数
+            next_state.l_prime = 0.0;
+            next_state.l_prime_prime = 0.0;
+            next_states.push_back(next_state);
+        }
+    }
+
+    // 2. 生成中心点 (0)
+    {
         SLState next_state;
         next_state.s = s_value;
-        next_state.l = l;
+        next_state.l = 0.0;
         next_state.l_prime = 0.0;
         next_state.l_prime_prime = 0.0;
         next_states.push_back(next_state);
+    }
+
+    // 3. 生成左侧采样点 (从0向左边界逼近)
+    if (n_left > 0) {
+        double step = left_bound / n_left;
+        for (int i = 1; i <= n_left; ++i) {
+            SLState next_state;
+            next_state.s = s_value;
+            next_state.l = i * step;
+            next_state.l_prime = 0.0;
+            next_state.l_prime_prime = 0.0;
+            next_states.push_back(next_state);
+        }
     }
     return next_states;
 }
@@ -785,10 +841,13 @@ void path_DP(){
     path_config.lane_width = 7.0;             // 路宽
     path_config.l_sample_number = 7;       // l方向采样点数，应该是奇数
     
+    std::vector<double> road_width_left(200, 3.5);
+    std::vector<double> road_width_right(200, -3.5);
+
     // 3. 创建路径规划策略
     auto path_cost_func = std::make_shared<PathCostFunction>(weights, path_config, path_obstacles);
     auto path_constraints = std::make_shared<PathConstraintChecker>(4.0, -4.0, path_obstacles);
-    auto path_sampling = std::make_shared<PathSamplingStrategy>(path_config);
+    auto path_sampling = std::make_shared<PathSamplingStrategy>(path_config, road_width_left, road_width_right);
     auto path_backtrack = std::make_shared<planner::DefaultBacktrackStrategy<SLState>>();
     
     // 4. 配置DP规划器

@@ -73,6 +73,8 @@ public:
         const StateType& state,
         const StateType& goal = StateType{}
     ) const {
+        (void)state;
+        (void)goal;
         return 0.0;  // 默认不启用启发式
     }
 };

@@ -64,6 +64,10 @@ PlanningAgent::PlanningAgent() : Node("planning_agent")
     _target_speed_subscriber = this->create_subscription<std_msgs::msg::Float64>(
         speed_topic, qos_profile,
         std::bind(&PlanningAgent::target_speed_cb, this, std::placeholders::_1));
+
+    _road_boundaries_subscriber = this->create_subscription<std_msgs::msg::Float32MultiArray>(
+        "/carla/road_boundaries", qos_profile,
+        std::bind(&PlanningAgent::road_boundaries_cb, this, std::placeholders::_1));
         
     _path_subscriber = this->create_subscription<nav_msgs::msg::Path>(
         path_topic, qos_profile,
@@ -132,6 +136,31 @@ void PlanningAgent::target_speed_cb(const std_msgs::msg::Float64::SharedPtr msg)
     if (_enable_planner_log) {
         RCLCPP_INFO(this->get_logger(), "收到目标速度: %.2f km/h", msg->data);
     }
+}
+
+void PlanningAgent::road_boundaries_cb(const std_msgs::msg::Float32MultiArray::SharedPtr msg)
+{
+    // 格式: [resolution, left_0, right_0, left_1, right_1, ...]
+    if (msg->data.size() < 3) return;
+    
+    std::lock_guard<std::mutex> lock(_ego_state_mutex);
+    _current_ego_state->road_width_resolution = msg->data[0];
+    
+    size_t num_points = (msg->data.size() - 1) / 2;
+    _current_ego_state->road_width_left_vec.clear();
+    _current_ego_state->road_width_right_vec.clear();
+    _current_ego_state->road_width_left_vec.reserve(num_points);
+    _current_ego_state->road_width_right_vec.reserve(num_points);
+    
+    for (size_t i = 0; i < num_points; ++i) {
+        _current_ego_state->road_width_left_vec.push_back(msg->data[1 + 2 * i]);
+        _current_ego_state->road_width_right_vec.push_back(msg->data[1 + 2 * i + 1]);
+    }
+    rclcpp::Logger logger = this->get_logger();
+
+    // RCLCPP_INFO(logger, "收到道路边界消息，采样点数: %zu，最大值: %.2f m，最小值: %.2f m",
+    //             num_points, *std::max_element(_current_ego_state->road_width_left_vec.begin(), _current_ego_state->road_width_left_vec.end()),
+    //             *std::min_element(_current_ego_state->road_width_right_vec.begin(), _current_ego_state->road_width_right_vec.end()));
 }
 
 void PlanningAgent::path_cb(const nav_msgs::msg::Path::SharedPtr waypoints)

@@ -16,6 +16,7 @@
 #include "nav_msgs/msg/path.hpp"
 #include "sensor_msgs/msg/imu.hpp"
 #include "std_msgs/msg/float64.hpp"
+#include "std_msgs/msg/float32_multi_array.hpp"
 #include "carla_msgs/msg/carla_ego_vehicle_info.hpp"
 #include "derived_object_msgs/msg/object_array.hpp"
 #include "pnc_msgs/msg/trajectory.hpp"
@@ -42,6 +43,7 @@ private:
     void imu_cb(const sensor_msgs::msg::Imu::SharedPtr msg);
     void ego_info_cb(const carla_msgs::msg::CarlaEgoVehicleInfo::SharedPtr msg);
     void target_speed_cb(const std_msgs::msg::Float64::SharedPtr msg);
+    void road_boundaries_cb(const std_msgs::msg::Float32MultiArray::SharedPtr msg);
     void path_cb(const nav_msgs::msg::Path::SharedPtr msg);
     void objects_cb(const derived_object_msgs::msg::ObjectArray::SharedPtr msg);
     void planning_run_step();
@@ -56,6 +58,7 @@ private:
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr _imu_subscriber;
     rclcpp::Subscription<carla_msgs::msg::CarlaEgoVehicleInfo>::SharedPtr _ego_info_subscriber;
     rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr _target_speed_subscriber;
+    rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr _road_boundaries_subscriber;
     rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr _path_subscriber;
     rclcpp::Subscription<derived_object_msgs::msg::ObjectArray>::SharedPtr _object_array_subscriber;
 

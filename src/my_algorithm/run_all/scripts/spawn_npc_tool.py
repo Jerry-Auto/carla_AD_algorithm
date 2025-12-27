@@ -104,22 +104,28 @@ class SpawnNpcTool(Node):
             self.get_logger().warn(f"Failed to spawn actor: {e}")
             return
 
-        # Set Autopilot
+        # Set Autopilot or Static
         if vehicle:
             try:
-                # Try to use a random port for TM to avoid bind error if default 8000 is taken
-                tm_port = 8000
-                vehicle.set_autopilot(True, tm_port)
-                self.get_logger().info("Autopilot enabled")
-            except Exception as e:
-                self.get_logger().warn(f"Failed to enable autopilot on default port: {e}")
-                try:
-                    # Fallback: try another port
-                    tm_port = random.randint(8005, 8100)
+                if random.random() < 0.5:
+                    # 50% chance: Static (No Autopilot)
+                    self.get_logger().info("Vehicle spawned as STATIC (No Autopilot)")
+                else:
+                    # 50% chance: Autopilot
+                    # Try to use a random port for TM to avoid bind error if default 8000 is taken
+                    tm_port = 8000
                     vehicle.set_autopilot(True, tm_port)
-                    self.get_logger().info(f"Autopilot enabled on port {tm_port}")
-                except Exception as e2:
-                    self.get_logger().error(f"Could not enable autopilot: {e2}")
+                    self.get_logger().info("Vehicle spawned with AUTOPILOT enabled")
+            except Exception as e:
+                self.get_logger().warn(f"Failed to set vehicle mode: {e}")
+                # Fallback logic for autopilot if needed...
+                if not vehicle.get_autopilot_status(): # Check if it failed to set
+                     try:
+                        tm_port = random.randint(8005, 8100)
+                        vehicle.set_autopilot(True, tm_port)
+                        self.get_logger().info(f"Autopilot enabled on fallback port {tm_port}")
+                     except:
+                        pass
 
 def main(args=None):
     rclpy.init(args=args)

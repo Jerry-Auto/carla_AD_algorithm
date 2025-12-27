@@ -126,6 +126,7 @@ std::vector<TrajectoryPoint> EMPlanner::plan(
     
     // 4. 路径规划
     log("Step 4: Path planning...");
+    path_planner_->set_road_width(ego_state);
     FrenetPoint start_frenet = global_frenet_frame_->cartesian_to_frenet(planning_start_point);
 
     const size_t kMaxPathRetry = 3;
