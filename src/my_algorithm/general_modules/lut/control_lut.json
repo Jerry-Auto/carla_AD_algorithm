@@ -1,0 +1,19 @@
+{
+  "input_names": [
+    "speed",
+    "acceleration"
+  ],
+  "output_name": "control_signal",
+  "speed_min": 0.0,
+  "speed_max": 30.0,
+  "speed_steps": 31,
+  "accel_min": -5.0,
+  "accel_max": 5.0,
+  "accel_steps": 21,
+  "dtype": "float32",
+  "shape": [
+    31,
+    21
+  ],
+  "description": "Control signal: positive=throttle, negative=brake"
+}

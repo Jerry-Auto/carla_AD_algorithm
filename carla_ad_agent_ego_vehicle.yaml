@@ -1,0 +1,5 @@
+/carla_ad_agent_ego_vehicle:
+  ros__parameters:
+    avoid_risk: true
+    role_name: ego_vehicle
+    use_sim_time: true
