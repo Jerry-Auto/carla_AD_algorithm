@@ -158,6 +158,7 @@ void PlanningAgent::road_boundaries_cb(const std_msgs::msg::Float32MultiArray::S
     //     std::cout<<_current_ego_state->road_width_left_vec[i]<<",";
     //     std::cout<<_current_ego_state->road_width_right_vec[i]<<std::endl;
     // }
+
     rclcpp::Logger logger = this->get_logger();
 
 
@@ -345,6 +346,7 @@ std::vector<general::Obstacle> PlanningAgent::convertToPlannerObstacles(
         obstacle.x = obj.pose.position.x;
         obstacle.y = obj.pose.position.y;
         obstacle.z = obj.pose.position.z;
+        obstacle.heading = normalize_angle(tf2::getYaw(obj.pose.orientation));
         obstacle.vx = obj.twist.linear.x;
         obstacle.vy = obj.twist.linear.y;
         obstacle.vz = obj.twist.linear.z;

@@ -51,6 +51,10 @@ public:
     TrajectoryPoint frenet_to_cartesian(const FrenetPoint& frenet_point) const;
     std::vector<TrajectoryPoint> frenet_to_cartesian(const std::vector<FrenetPoint>& frenet_points) const;
 
+    // 障碍物投影
+    std::vector<FrenetPoint> project_obstacle_to_frenet(const Obstacle& obstacle) const;
+    std::vector<FrenetPoint> project_dynamic_obstacle_to_frenet(const Obstacle& obstacle) const;
+
     // 访问
     const std::vector<PathPoint>& get_reference_path() const { return ref_line_.get_path_points(); }
     const ReferenceLine& get_reference_line() const { return ref_line_; }

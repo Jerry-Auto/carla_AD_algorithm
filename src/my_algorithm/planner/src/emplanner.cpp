@@ -93,12 +93,12 @@ std::vector<TrajectoryPoint> EMPlanner::plan(
     
     // 3. 静态障碍物投影到Frenet坐标系
     log("INFO", "Step 3: Projecting static obstacles to Frenet frame...");
-    std::vector<FrenetPoint> static_frenet_obstacles;
+    std::vector<std::vector<FrenetPoint>> static_frenet_obstacles;
     for (const auto& obs : static_obstacles) {
         log("INFO", "Raw Static Obstacle: id=" + std::to_string(obs.id) + " x=" + std::to_string(obs.x) + " y=" + std::to_string(obs.y));
-        FrenetPoint fp = global_frenet_frame_->cartesian_to_frenet(obs.x, obs.y);
-        static_frenet_obstacles.push_back(fp);
-        log("INFO", "Static obstacle at (s=" + std::to_string(fp.s) + ", l=" + std::to_string(fp.l) + ")");
+        std::vector<FrenetPoint> frenet_corners = global_frenet_frame_->project_obstacle_to_frenet(obs);
+        static_frenet_obstacles.push_back(frenet_corners);
+        log("INFO", "Static obstacle projected with " + std::to_string(frenet_corners.size()) + " corners");
     }
     
     // 4. 路径规划
@@ -142,12 +142,11 @@ std::vector<TrajectoryPoint> EMPlanner::plan(
     
     // 5. 速度规划
     // 动态障碍物投影到路径上
-    std::vector<FrenetPoint> dynamic_frenet_obstacles;
+    log("INFO", "Step 5: Speed planning...");
+    std::vector<std::vector<FrenetPoint>> dynamic_frenet_obstacles;
     for (const auto& obs : dynamic_obstacles) {
-        FrenetPoint fp = path_frame_ptr->cartesian_to_frenet(obs.x, obs.y);
-        fp.s_dot = obs.vx;
-        fp.l_dot = obs.vy;
-        dynamic_frenet_obstacles.push_back(fp);
+        std::vector<FrenetPoint> frenet_corners = path_frame_ptr->project_dynamic_obstacle_to_frenet(obs);
+        dynamic_frenet_obstacles.push_back(frenet_corners);
     }
 
     const size_t kMaxSpeedRetry = 3;

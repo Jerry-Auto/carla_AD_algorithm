@@ -383,5 +383,62 @@ std::vector<TrajectoryPoint> FrenetFrame::frenet_to_cartesian(const std::vector<
     return res;
 }
 
+std::vector<FrenetPoint> FrenetFrame::project_obstacle_to_frenet(const Obstacle& obstacle) const {
+    double half_l = obstacle.length / 2.0;
+    double half_w = obstacle.width / 2.0;
+    double cos_h = std::cos(obstacle.heading);
+    double sin_h = std::sin(obstacle.heading);
+    
+    // 计算矩形障碍物的四个角点
+    std::vector<Vec2d> corners = {
+        {obstacle.x + half_l * cos_h - half_w * sin_h, obstacle.y + half_l * sin_h + half_w * cos_h},
+        {obstacle.x - half_l * cos_h - half_w * sin_h, obstacle.y - half_l * sin_h + half_w * cos_h},
+        {obstacle.x - half_l * cos_h + half_w * sin_h, obstacle.y - half_l * sin_h - half_w * cos_h},
+        {obstacle.x + half_l * cos_h + half_w * sin_h, obstacle.y + half_l * sin_h - half_w * cos_h}
+    };
+    
+    std::vector<FrenetPoint> frenet_corners;
+    frenet_corners.reserve(corners.size());
+    for (const auto& corner : corners) {
+        frenet_corners.push_back(cartesian_to_frenet(corner.x, corner.y));
+    }
+    return frenet_corners;
+}
+
+std::vector<FrenetPoint> FrenetFrame::project_dynamic_obstacle_to_frenet(const Obstacle& obstacle) const {
+    double half_l = obstacle.length / 2.0;
+    double half_w = obstacle.width / 2.0;
+    double cos_h = std::cos(obstacle.heading);
+    double sin_h = std::sin(obstacle.heading);
+    
+    // 1. 计算 4 个角点
+    std::vector<Vec2d> corners = {
+        {obstacle.x + half_l * cos_h - half_w * sin_h, obstacle.y + half_l * sin_h + half_w * cos_h},
+        {obstacle.x - half_l * cos_h - half_w * sin_h, obstacle.y - half_l * sin_h + half_w * cos_h},
+        {obstacle.x - half_l * cos_h + half_w * sin_h, obstacle.y - half_l * sin_h - half_w * cos_h},
+        {obstacle.x + half_l * cos_h + half_w * sin_h, obstacle.y + half_l * sin_h - half_w * cos_h}
+    };
+    
+    // 2. 计算中心点的 Frenet 速度
+    TrajectoryPoint center_tp;
+    center_tp.x = obstacle.x;
+    center_tp.y = obstacle.y;
+    center_tp.v = std::hypot(obstacle.vx, obstacle.vy);
+    center_tp.heading = std::atan2(obstacle.vy, obstacle.vx);
+    
+    FrenetPoint center_fp = cartesian_to_frenet(center_tp);
+    
+    // 3. 投影 4 个角点，并赋予中心点的速度
+    std::vector<FrenetPoint> frenet_corners;
+    frenet_corners.reserve(corners.size());
+    for (const auto& corner : corners) {
+        FrenetPoint fp = cartesian_to_frenet(corner.x, corner.y);
+        fp.s_dot = center_fp.s_dot;
+        fp.l_dot = center_fp.l_dot;
+        frenet_corners.push_back(fp);
+    }
+    return frenet_corners;
+}
+
 } // namespace general
 } // namespace AD_algorithm

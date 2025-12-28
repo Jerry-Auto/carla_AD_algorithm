@@ -41,7 +41,7 @@ public:
         const AD_algorithm::general::FrenetFrame& ref_path_frame,
         const general::TrajectoryPoint& planning_start_point,
         double reference_speed,
-        const std::vector<AD_algorithm::general::FrenetPoint>& dynamic_frenet_obstacles); 
+        const std::vector<std::vector<AD_algorithm::general::FrenetPoint>>& dynamic_frenet_obstacles); 
         
 private:
     template<typename... Args>
@@ -52,15 +52,15 @@ private:
     std::shared_ptr<general::Logger> logger_;
     //成员函数
     // 生成ST图
-    std::vector<std::unordered_map<std::string, double>> generateSTGraph(
-        const std::vector<general::FrenetPoint>& dynamic_obstacles,
+    std::vector<std::vector<general::STPoint>> generateSTGraph(
+        const std::vector<std::vector<general::FrenetPoint>>& dynamic_obstacles,
         double delta_l = 2.0);
         
     // 加密速度剖面
     void increaseSpeedProfile(std::vector<general::STPoint>& DP_or_QP,double interval);
     
     void generate_convex_space(AD_algorithm::general::FrenetFrame ref_path_frenet,
-        const std::vector<std::unordered_map<std::string, double>>& dynamic_obs_st_graph,
+        const std::vector<STObstacle>& st_obstacles,
         std::vector<double>& s_min,std::vector<double>& s_max,
         std::vector<double>& s_dot_lb,std::vector<double>& s_dot_ub);
 

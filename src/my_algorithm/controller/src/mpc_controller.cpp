@@ -7,8 +7,9 @@ namespace controller {
 
 MPCController::MPCController() : ControllerBase("MPCController")
 {
-    // 计算转动惯量
-    _Iz = _m/2.0 * _lf * _lf + _m/2.0 * _lr * _lr;
+    if (!vehicle_params_) {
+        vehicle_params_ = std::make_shared<general::VehicleParams>();
+    }
 
     // 状态矩阵初始化
     _matrix_A.setZero(_state_dim, _state_dim);
@@ -21,8 +22,14 @@ MPCController::MPCController() : ControllerBase("MPCController")
     _matrix_R.setZero(_control_dim, _control_dim);
 
     // 与速度无关的矩阵B在这里直接赋值
-    _matrix_B(1, 0) = - _cf / _m;
-    _matrix_B(3, 0) = -_lf * _cf / _Iz;
+    // 注意：这里假设 VehicleParams 中的 cf, cr 为正值，而 MPC 方程中需要负值
+    double cf = -vehicle_params_->cf;
+    double m = vehicle_params_->mass;
+    double lf = vehicle_params_->lf;
+    double Iz = vehicle_params_->iz;
+
+    _matrix_B(1, 0) = - cf / m;
+    _matrix_B(3, 0) = -lf * cf / Iz;
     // 这里取1,纵向误差误差形式取***真实值-参考值***
     _matrix_B(5, 1) = 1;
 
@@ -58,9 +65,7 @@ bool MPCController::compute_control_cmd(
     // 3.求解MPC问题
     if(!solve_mpc())
     {
-        if (enable_logging_) {
-            logger_->error("mpc二次规划求解失败!!!");
-        }
+        log("ERROR", "mpc二次规划求解失败!!!");
         return false;
     }
 
@@ -73,7 +78,7 @@ bool MPCController::compute_control_cmd(
     
     // 4.3 总转向指令
     double steer_cmd = steer_feedback + steer_feedforward;
-    double steer_limit = 45.0 * M_PI / 180.0;
+    double steer_limit = vehicle_params_->max_steer;
     steer_cmd = clamp(steer_cmd, -steer_limit, steer_limit);
     cmd.set_steer(steer_cmd);
     
@@ -94,7 +99,7 @@ void MPCController::set_matrix_Q(const std::vector<double>& vector_Q)
     if (vector_Q.size() != static_cast<size_t>(_matrix_Q.rows()) ||
         vector_Q.size() != static_cast<size_t>(_matrix_Q.cols()))
     {
-        logger_->error("输入维数不争取,设置Q矩阵失败");
+        log("ERROR", "输入维数不争取,设置Q矩阵失败");
     }
 
     for (size_t i = 0; i < vector_Q.size(); i++)
@@ -109,7 +114,7 @@ void MPCController::set_matrix_R(const std::vector<double>& vector_R)
     if (vector_R.size() != static_cast<size_t>(_matrix_R.rows()) ||
         vector_R.size() != static_cast<size_t>(_matrix_R.cols()))
     {
-        logger_->error("输入维数不争取,设置R矩阵失败");
+        log("ERROR", "输入维数不争取,设置R矩阵失败");
     }
     
     for (size_t i = 0; i < vector_R.size(); i++)
@@ -224,40 +229,30 @@ void MPCController::update_state(
     _ref_kappa = target_point.kappa;
     _real_acc = ego_pro.s_dot_dot;
 
-    if (enable_logging_) {
-        // 使用cout输出在运行carla_ad_demo的时候是不输出的,应该是级别不够
-        // std::cout << "目标点: " << "x:" << target_point.x << ", " << "y:" << target_point.y << ", "
-        //           << "v:" << target_point.v <<", "<< "heading:" << target_point.heading << ", "
-        //           << "a_tau:" << target_point.a_tau << ", " << "s:" << target_point_s << std::endl;
-        
-        // std::cout << "主车位置: " << "x:" << ego_state->x << ", " << "y:" << ego_state->y << ", "
-        //           << "v:" << ego_state->v << ", " << "heading:" << ego_state->heading << ", " << std::endl;
-
-        // std::cout << "主车投影: " << "s:" << ego_pro.s << ", " << "s_dot:" << ego_pro.s_dot << ", "
-        //           << "s_dot_dot:" << ego_pro.s_dot_dot << ", " << "l:" << ego_pro.l << std::endl;
-
-        // std::cout << "误差: " << "d_error:" << d_error << ", " << "d_dot_error:" << d_dot_error << ", "
-        //           << "heading_error:" << heading_error << ", " << "heading_dot_error:" << heading_dot_error << ", "
-        //           << "station_error:" << station_error << ", " << "speed_error:" << speed_error << std::endl; 
-
-        logger_->info("目标位置: x:{:.3f}, y:{:.3f}, v:{:.3f}, heading:{:.3f}",target_point.x, target_point.y, target_point.v, target_point.heading);
-        logger_->info("实际位置: x:{:.3f}, y:{:.3f}, v:{:.3f}, heading:{:.3f}",ego_state->x, ego_state->y, ego_state->v, ego_state->heading);
-    }
+    log("INFO", "目标位置: x:", target_point.x, "y:", target_point.y, "v:", target_point.v, "heading:", target_point.heading);
+    log("INFO", "实际位置: x:", ego_state->x, "y:", ego_state->y, "v:", ego_state->v, "heading:", ego_state->heading);
 }
 
 void MPCController::update_matrix(const double ego_v, const double dt)
 {
     double v = std::max(ego_v, 1e-3); //提供最小速度保护
 
+    double cf = -vehicle_params_->cf;
+    double cr = -vehicle_params_->cr;
+    double m = vehicle_params_->mass;
+    double lf = vehicle_params_->lf;
+    double lr = vehicle_params_->lr;
+    double Iz = vehicle_params_->iz;
+
     // 更新A矩阵
     _matrix_A(0, 1) = 1.0;
-    _matrix_A(1, 1) = (_cf + _cr)/(_m * v);
-    _matrix_A(1, 2) = -(_cf + _cr)/(_m);
-    _matrix_A(1, 3) = (_lf*_cf - _lr*_cr)/(_m * v);
+    _matrix_A(1, 1) = (cf + cr)/(m * v);
+    _matrix_A(1, 2) = -(cf + cr)/(m);
+    _matrix_A(1, 3) = (lf*cf - lr*cr)/(m * v);
     _matrix_A(2, 3) = 1.0;
-    _matrix_A(3, 1) = (_lf*_cf - _lr*_cr)/(_Iz * v);
-    _matrix_A(3, 2) = -(_lf*_cf - _lr*_cr)/(_Iz);
-    _matrix_A(3, 3) = (_lf*_lf*_cf + _lr*_lr*_cr)/(_Iz * v);
+    _matrix_A(3, 1) = (lf*cf - lr*cr)/(Iz * v);
+    _matrix_A(3, 2) = -(lf*cf - lr*cr)/(Iz);
+    _matrix_A(3, 3) = (lf*lf*cf + lr*lr*cr)/(Iz * v);
     _matrix_A(4, 5) = 1.0;
 
     // 离散化矩阵
@@ -341,17 +336,10 @@ bool MPCController::solve_mpc()
     up_boundary.resize(_horizon * _control_dim);
     for (int i = 0; i < _horizon; i++)
     {
-        low_boundary(2*i) = _steer_min;
-        low_boundary(2*i + 1) = _amin;
-        up_boundary(2*i) = _steer_max;
-        up_boundary(2*i + 1) = _amax; 
-    }
-
-    // debug信息
-    if (enable_logging_) {
-        // std::cout << "--------------A矩阵-------------" << std::endl;
-        // std::cout << _matrix_A << std::endl;
-        // ...
+        low_boundary(2*i) = -vehicle_params_->max_steer;
+        low_boundary(2*i + 1) = -vehicle_params_->max_decel;
+        up_boundary(2*i) = vehicle_params_->max_steer;
+        up_boundary(2*i + 1) = vehicle_params_->max_accel; 
     }
 
     // 求解二次规划
@@ -377,11 +365,9 @@ bool MPCController::solve_mpc()
     _mpc_solver->clearSolver();
 
     // debug信息
-    if (enable_logging_) {
-        std::cout << "--------------最优解-----------------" << std::endl;
-        std::cout << solution << std::endl;
-        std::cout << _matrix_control << std::endl;
-    }
+    log("DEBUG", "--------------最优解-----------------");
+    log("DEBUG", "\n", solution);
+    log("DEBUG", "\n", _matrix_control);
 
     return true;
 }
@@ -392,8 +378,14 @@ double MPCController::compute_feedforward(const double ego_v)
     // 这里的前馈是一个不完整的前馈,因为没有反馈矩阵K可以使用,
     // 所有和反馈K有关项,都取为0.
     double v = std::max(ego_v, 1e-3);// 除0保护
-    double k_v = - _m / (_lf + _lr) * (_lr / _cf - _lf / _cr);
-    return _ref_kappa * (_lf + _lr + k_v * v * v);
+    double cf = -vehicle_params_->cf;
+    double cr = -vehicle_params_->cr;
+    double m = vehicle_params_->mass;
+    double lf = vehicle_params_->lf;
+    double lr = vehicle_params_->lr;
+
+    double k_v = - m / (lf + lr) * (lr / cf - lf / cr);
+    return _ref_kappa * (lf + lr + k_v * v * v);
 }
 
 

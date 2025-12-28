@@ -1,8 +1,9 @@
 #pragma once
-
+#include <vector>
 #include <cstdint>
 #include <cmath>
 #include <utility>
+#include "general_modules/geometry.h"
 
 namespace AD_algorithm {
 namespace general {
@@ -54,6 +55,22 @@ struct STPoint {
     }
 };
 
+// 车辆参数结构体
+struct VehicleParams {
+    VehicleParams() : mass(1845.0), lf(1.426), lr(1.426), iz(3751.6), cf(155494.663),
+                      cr(155494.663), max_steer(1.0), max_accel(4.0), max_decel(6.0) {}
+    double mass;
+    double lf;
+    double lr;
+    double iz;
+    double cf;
+    double cr;
+    double max_steer;
+    double max_accel;
+    double max_decel;
+    double width;
+};
+
 struct VehicleState {
     VehicleState()
         : x(0.0), y(0.0), z(0.0), heading(0.0), v(0.0), ax(0.0), ay(0.0), omega(0.0), alpha(0.0),
@@ -88,6 +105,7 @@ struct Obstacle {
     double x;
     double y;
     double z;
+    double heading;
     double vx;
     double vy;
     double vz;
@@ -96,7 +114,7 @@ struct Obstacle {
     double height;
 
     Obstacle()
-        : id(0), x(0.0), y(0.0), z(0.0), vx(0.0), vy(0.0), vz(0.0),
+        : id(0), x(0.0), y(0.0), z(0.0), heading(0.0), vx(0.0), vy(0.0), vz(0.0),
           length(5.0), width(2.0), height(1.5) {}
 
     double getSpeed() const {

@@ -56,7 +56,7 @@ void PathPlanner::set_road_width(const std::shared_ptr<AD_algorithm::general::Ve
 std::vector<TrajectoryPoint> PathPlanner::planPath(
     const std::shared_ptr<FrenetFrame>& frenet_frame,
     const FrenetPoint& planning_start_point,
-    const std::vector<FrenetPoint>& static_obstacles
+    const std::vector<std::vector<FrenetPoint>>& static_obstacles
     ) {
     // 注意，传入的planning_start_point的s是相对于全局frenet坐标系的原点来计算的
     // static_obstacles也是相对于全局坐标系的S
@@ -103,10 +103,18 @@ std::vector<TrajectoryPoint> PathPlanner::planPath(
         ", l''=", start_state.l_prime_prime);
 
     // 转换障碍物
-    std::vector<SLObstacle> sl_obstacles;
-    for (const auto& obs : static_obstacles) {
-        sl_obstacles.emplace_back(obs.s - offset_s, obs.l, 5.0, 2.0, config_.safety_margin);//这里已经转化到局部坐标系
+    std::vector<std::vector<FrenetPoint>> local_frenet_obstacles;
+    for (const auto& obs_corners : static_obstacles) {
+        std::vector<FrenetPoint> corners;
+        for (const auto& cp : obs_corners) {
+            FrenetPoint p = cp;
+            p.s -= offset_s;
+            corners.push_back(p);
+        }
+        local_frenet_obstacles.push_back(corners);
     }
+    
+    std::vector<SLObstacle> sl_obstacles = convertToSLObstacles(local_frenet_obstacles, config_.safety_margin);
     
     // 创建策略
     auto cost_function = std::make_shared<PathCostFunction>(weights_, config_, sl_obstacles);
@@ -178,12 +186,16 @@ std::vector<TrajectoryPoint> PathPlanner::planPath(
     log("INFO", "Generating convex space...");
     std::vector<double> l_min, l_max;
 
-    std::vector<FrenetPoint> local_static_obstacles;
+    std::vector<std::vector<FrenetPoint>> local_static_obstacles;
     // 上面的SL障碍物是给DP用的，这里的还没有转换，需要转换到局部坐标系
-    for (const auto& obs : static_obstacles) {
-        FrenetPoint local_obs = obs;
-        local_obs.s -= offset_s;
-        local_static_obstacles.push_back(local_obs);
+    for (const auto& obs_corners : static_obstacles) {
+        std::vector<FrenetPoint> local_corners;
+        for (const auto& corner : obs_corners) {
+            FrenetPoint local_corner = corner;
+            local_corner.s -= offset_s;
+            local_corners.push_back(local_corner);
+        }
+        local_static_obstacles.push_back(local_corners);
     }
 
     // 最近障碍物决策锁定：在调用 generateConvexSpace() 前更新锁定状态
@@ -551,7 +563,7 @@ void PathPlanner::IncreasePathDensity(std::vector<general::FrenetPoint>& DP_or_Q
 
 
 void PathPlanner::generateConvexSpace(
-    const std::vector<FrenetPoint>& static_obstacles,
+    const std::vector<std::vector<general::FrenetPoint>>& static_obstacles,
     std::vector<double>& l_min,
     std::vector<double>& l_max) {
 
@@ -607,16 +619,17 @@ void PathPlanner::generateConvexSpace(
 
     // 计算“最近障碍物”（只考虑 s>=0 的前向障碍物）
     double nearest_obs_s = std::numeric_limits<double>::infinity();
-    for (const auto& obs : static_obstacles) {
-        if (obs.s >= 0.0 && obs.s < nearest_obs_s) {
-            nearest_obs_s = obs.s;
+    for (const auto& obs_corners : static_obstacles) {
+        if (obs_corners.empty()) continue;
+        double min_s = std::numeric_limits<double>::max();
+        for (const auto& p : obs_corners) min_s = std::min(min_s, p.s);
+        
+        if (min_s >= 0.0 && min_s < nearest_obs_s) {
+            nearest_obs_s = min_s;
         }
     }
     const bool has_nearest_obs = std::isfinite(nearest_obs_s);
 
-    double obs_length = 5.0;
-    double obs_width = 2.0;
-    
     // 简单的最近点查找函数
     auto findClosestIndex = [&](double target_s) -> int {
         if (dp_path_.empty()) return -1;
@@ -631,48 +644,58 @@ void PathPlanner::generateConvexSpace(
         return -1;
     };
     
-    for (const auto& obs : static_obstacles) {
-        int center_index = findClosestIndex(obs.s);
+    for (const auto& obs_corners : static_obstacles) {
+        if (obs_corners.empty()) continue;
+        
+        double s_min = std::numeric_limits<double>::max();
+        double s_max = std::numeric_limits<double>::lowest();
+        double l_min_obs = std::numeric_limits<double>::max();
+        double l_max_obs = std::numeric_limits<double>::lowest();
+        double s_center = 0.0;
+        double l_center = 0.0;
+
+        for (const auto& p : obs_corners) {
+            s_min = std::min(s_min, p.s);
+            s_max = std::max(s_max, p.s);
+            l_min_obs = std::min(l_min_obs, p.l);
+            l_max_obs = std::max(l_max_obs, p.l);
+            s_center += p.s;
+            l_center += p.l;
+        }
+        s_center /= obs_corners.size();
+        l_center /= obs_corners.size();
+
+        int center_index = findClosestIndex(s_center);
         if (center_index == -1) continue;
         
-        log("DEBUG", "Obs at s=", obs.s,
-            ", l=", obs.l,
+        log("DEBUG", "Obs at s_center=", s_center,
+            ", l_center=", l_center,
             ", center_idx=", center_index,
             ", dp_l=", dp_path_[center_index].l);
 
         // 对“最近障碍物”使用锁定决策（近5次多数投票后锁定），其他障碍物仍按当前DP相对位置决定
         NearestObsDecision decision = NearestObsDecision::Unknown;
-        if (has_nearest_obs && std::abs(obs.s - nearest_obs_s) < 1e-3 && locked_nearest_obs_decision_ != NearestObsDecision::Unknown) {
+        if (has_nearest_obs && std::abs(s_min - nearest_obs_s) < 1e-3 && locked_nearest_obs_decision_ != NearestObsDecision::Unknown) {
             decision = locked_nearest_obs_decision_;
         } else {
-            decision = (dp_path_[center_index].l > obs.l) ? NearestObsDecision::BypassLeft : NearestObsDecision::BypassRight;
+            decision = (dp_path_[center_index].l > l_center) ? NearestObsDecision::BypassLeft : NearestObsDecision::BypassRight;
         }
 
-        if (decision == NearestObsDecision::BypassLeft) { // 左侧绕行
-            // 增加纵向缓冲距离，使车辆提前开始变道
-            double longitudinal_buffer = 10.0; 
-            int start_index = findClosestIndex(obs.s - obs_length/2.0 - longitudinal_buffer);
-            int end_index = findClosestIndex(obs.s + obs_length/2.0 + longitudinal_buffer);
-            
-            log("DEBUG", "Left bypass. start=", start_index, ", end=", end_index);
+        double longitudinal_buffer = 10.0; 
+        int start_index = findClosestIndex(s_min - longitudinal_buffer);
+        int end_index = findClosestIndex(s_max + longitudinal_buffer);
+        
+        if (start_index == -1 || end_index == -1) continue;
 
-            if (start_index == -1 || end_index == -1) continue;
-            
+        if (decision == NearestObsDecision::BypassLeft) { // 左侧绕行
+            log("DEBUG", "Left bypass. start=", start_index, ", end=", end_index);
             for (int i = start_index; i <= end_index; i++) {
-                l_min[i] = std::max(l_min[i], obs.l + obs_width/2.0 + config_.safety_margin);
+                l_min[i] = std::max(l_min[i], l_max_obs + config_.safety_margin);
             }
         } else { // 右侧绕行
-            // 增加纵向缓冲距离，使车辆提前开始变道
-            double longitudinal_buffer = 10.0;
-            int start_index = findClosestIndex(obs.s - obs_length/2.0 - longitudinal_buffer);
-            int end_index = findClosestIndex(obs.s + obs_length/2.0 + longitudinal_buffer);
-            
             log("DEBUG", "Right bypass. start=", start_index, ", end=", end_index);
-
-            if (start_index == -1 || end_index == -1) continue;
-            
             for (int i = start_index; i <= end_index; i++) {
-                l_max[i] = std::min(l_max[i], obs.l - obs_width/2.0 - config_.safety_margin);
+                l_max[i] = std::min(l_max[i], l_min_obs - config_.safety_margin);
             }
         }
     }
@@ -687,8 +710,8 @@ void PathPlanner::resetNearestObsDecision() {
 
 void PathPlanner::updateNearestObsDecision(
     double offset_s,
-    const std::vector<FrenetPoint>& static_obstacles_global,
-    const std::vector<FrenetPoint>& static_obstacles_local) {
+    const std::vector<std::vector<general::FrenetPoint>>& static_obstacles_global,
+    const std::vector<std::vector<general::FrenetPoint>>& static_obstacles_local) {
 
     if (dp_path_.empty()) return;
 
@@ -696,9 +719,14 @@ void PathPlanner::updateNearestObsDecision(
     int nearest_idx = -1;
     double nearest_local_s = std::numeric_limits<double>::infinity();
     for (size_t i = 0; i < static_obstacles_local.size(); ++i) {
-        const auto& obs = static_obstacles_local[i];
-        if (obs.s >= 0.0 && obs.s < nearest_local_s) {
-            nearest_local_s = obs.s;
+        const auto& obs_corners = static_obstacles_local[i];
+        if (obs_corners.empty()) continue;
+        
+        double min_s = std::numeric_limits<double>::max();
+        for (const auto& p : obs_corners) min_s = std::min(min_s, p.s);
+
+        if (min_s >= 0.0 && min_s < nearest_local_s) {
+            nearest_local_s = min_s;
             nearest_idx = static_cast<int>(i);
         }
     }
@@ -711,9 +739,15 @@ void PathPlanner::updateNearestObsDecision(
         return;
     }
 
-    const double nearest_global_s = (nearest_idx < static_cast<int>(static_obstacles_global.size()))
-                                       ? static_obstacles_global[nearest_idx].s
-                                       : (offset_s + nearest_local_s);
+    double nearest_global_s = 0.0;
+    if (nearest_idx < static_cast<int>(static_obstacles_global.size())) {
+        const auto& obs_corners_global = static_obstacles_global[nearest_idx];
+        double min_s_global = std::numeric_limits<double>::max();
+        for (const auto& p : obs_corners_global) min_s_global = std::min(min_s_global, p.s);
+        nearest_global_s = min_s_global;
+    } else {
+        nearest_global_s = offset_s + nearest_local_s;
+    }
 
     // 如果已越过当前锁定障碍物：重置并重新计数
     const double pass_clearance_s = 2.0;
@@ -754,10 +788,20 @@ void PathPlanner::updateNearestObsDecision(
         return -1;
     };
 
-    const int center_index = findClosestIndex(static_obstacles_local[nearest_idx].s);
+    const auto& obs_corners = static_obstacles_local[nearest_idx];
+    double s_center = 0.0;
+    double l_center = 0.0;
+    for (const auto& p : obs_corners) {
+        s_center += p.s;
+        l_center += p.l;
+    }
+    s_center /= obs_corners.size();
+    l_center /= obs_corners.size();
+
+    const int center_index = findClosestIndex(s_center);
     if (center_index < 0) return;
 
-    const NearestObsDecision raw_decision = (dp_path_[center_index].l > static_obstacles_local[nearest_idx].l)
+    const NearestObsDecision raw_decision = (dp_path_[center_index].l > l_center)
                                                 ? NearestObsDecision::BypassLeft
                                                 : NearestObsDecision::BypassRight;
 

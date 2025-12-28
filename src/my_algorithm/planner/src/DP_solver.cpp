@@ -6,6 +6,7 @@
 #include <Eigen/Dense>
 #include <iomanip>  
 #include "general_modules/polynomial_curve.h"  
+#include "general_modules/collision_detection.h"
 
 using namespace AD_algorithm::general;
 
@@ -15,31 +16,46 @@ namespace planner {
 
 // ==================== 辅助函数实现 ====================
 
+SLObstacle::SLObstacle(const std::vector<general::FrenetPoint>& corners, double margin)
+    : safety_margin(margin) {
+    std::vector<general::Vec2d> points;
+    for (const auto& cp : corners) {
+        points.emplace_back(cp.s, cp.l);
+    }
+    // 使用 Polygon2d 表示 SL 平面上的障碍物
+    polygon = std::make_shared<general::Polygon2d>(points);
+}
+
+SLObstacle::SLObstacle(double s, double l, double length, double width, double margin)
+    : safety_margin(margin) {
+    double s_min = s - length / 2.0;
+    double s_max = s + length / 2.0;
+    double l_min = l - width / 2.0;
+    double l_max = l + width / 2.0;
+    
+    std::vector<general::Vec2d> points = {
+        {s_min, l_min}, {s_max, l_min}, {s_max, l_max}, {s_min, l_max}
+    };
+    polygon = std::make_shared<general::Polygon2d>(points);
+}
+
 std::vector<SLObstacle> convertToSLObstacles(
-    const std::vector<FrenetPoint>& frenet_obstacles,
-    double length,
-    double width,
+    const std::vector<std::vector<AD_algorithm::general::FrenetPoint>>& frenet_obstacles,
     double safety_margin) {
     
     std::vector<SLObstacle> obstacles;
-    for (const auto& fp : frenet_obstacles) {
-        obstacles.emplace_back(fp.s, fp.l, length, width, safety_margin);
+    for (const auto& corners : frenet_obstacles) {
+        obstacles.emplace_back(corners, safety_margin);
     }
     return obstacles;
 }
 
 std::vector<STObstacle> convertToSTObstacles(
-    const std::vector<std::unordered_map<std::string, double>>& st_graph) {
+    const std::vector<std::vector<general::STPoint>>& st_graph) {
     
     std::vector<STObstacle> obstacles;
-    for (const auto& node : st_graph) {
-        if (node.count("t_in") && node.count("t_out") && 
-            node.count("s_in") && node.count("s_out")) {
-            obstacles.emplace_back(
-                node.at("t_in"), node.at("t_out"),
-                node.at("s_in"), node.at("s_out")
-            );
-        }
+    for (const auto& points : st_graph) {
+        obstacles.emplace_back(points);
     }
     return obstacles;
 }
@@ -47,33 +63,34 @@ std::vector<STObstacle> convertToSTObstacles(
 
 // ==================== STObstacle 成员函数实现 ====================
 
+STObstacle::STObstacle(const std::vector<general::STPoint>& points) {
+    std::vector<Vec2d> vertices;
+    for (const auto& p : points) {
+        vertices.emplace_back(p.t, p.s);
+    }
+    polygon = std::make_shared<Polygon2d>(vertices);
+}
+
+STObstacle::STObstacle(double t_start, double t_end, double s_start, double s_end) {
+    std::vector<Vec2d> vertices;
+    vertices.emplace_back(t_start, s_start);
+    vertices.emplace_back(t_start, s_end);
+    vertices.emplace_back(t_end, s_end);
+    vertices.emplace_back(t_end, s_start);
+    polygon = std::make_shared<Polygon2d>(vertices);
+}
+
 bool STObstacle::contains(double t, double s, double safety_margin) const {
-    if (t < t_in || t > t_out) return false;
-    
-    // 线性插值得到该时间对应的障碍物位置
-    double k = (s_out - s_in) / (t_out - t_in + 1e-6);
-    double obs_s = s_in + k * (t - t_in);
-    
-    return std::abs(s - obs_s) < safety_margin;
+    if (!polygon) return false;
+    Vec2d point(t, s);
+    double dist = CollisionDetection::distance_to(polygon, point);
+    return dist <= safety_margin;
 }
 
 double STObstacle::minDistanceTo(double t, double s) const {
-    Eigen::Vector2d p1(t_in, s_in);
-    Eigen::Vector2d p2(t_out, s_out);
-    Eigen::Vector2d p(t, s);
-    
-    Eigen::Vector2d v = p2 - p1;
-    Eigen::Vector2d w = p - p1;
-    
-    double c1 = w.dot(v);
-    if (c1 <= 0) return (p - p1).norm();
-    
-    double c2 = v.dot(v);
-    if (c2 <= c1) return (p - p2).norm();
-    
-    double b = c1 / c2;
-    Eigen::Vector2d pb = p1 + b * v;
-    return (p - pb).norm();
+    if (!polygon) return std::numeric_limits<double>::max();
+    Vec2d point(t, s);
+    return CollisionDetection::distance_to(polygon, point);
 }
 
 // ==================== PathCostFunction 成员函数实现 ====================
@@ -179,7 +196,7 @@ double PathCostFunction::calculateObstacleCost(const std::vector<double> s_set, 
     
     for (const auto& obs : _static_obstacles) {
         for (size_t i = 0; i < s_set.size(); i++) {
-            double min_dist = calculateDistanceToRectangle(s_set[i], l_set[i], obs);
+            double min_dist = calculateDistanceToObstacle(s_set[i], l_set[i], obs);
             // 根据距离计算代价
             if (min_dist <= 0) {
                 // 与障碍物重叠，极大代价
@@ -194,30 +211,13 @@ double PathCostFunction::calculateObstacleCost(const std::vector<double> s_set, 
     return cost;
 }
 
-double PathCostFunction::calculateDistanceToRectangle(const double& s, const double& l, 
+double PathCostFunction::calculateDistanceToObstacle(const double& s, const double& l, 
                                                    const SLObstacle& obs) const {
-    // 矩形范围
-    double s_min = obs.s_center - obs.length / 2.0;
-    double s_max = obs.s_center + obs.length / 2.0;
-    double l_min = obs.l_center - obs.width / 2.0;
-    double l_max = obs.l_center + obs.width / 2.0;
+    if (!obs.polygon) return std::numeric_limits<double>::max();
     
-    // 检查点是否在矩形内
-    if (s >= s_min && s <= s_max &&
-        l >= l_min && l <= l_max) {
-        return 0.0;  // 点在矩形内
-    }
-    
-    // 计算到矩形边界的最短距离
-    double ds = 0.0;
-    if (s < s_min) ds = s_min - s;
-    else if (s > s_max) ds = s - s_max;
-    
-    double dl = 0.0;
-    if (l < l_min) dl = l_min - l;
-    else if (l > l_max) dl = l - l_max;
-    
-    return std::hypot(ds, dl);
+    Vec2d point(s, l);
+    // 使用 CollisionDetection 计算点到多边形的距离
+    return CollisionDetection::distance_to(obs.polygon, point);
 }
 
 // ==================== PathConstraintChecker 成员函数实现 ====================
@@ -260,14 +260,12 @@ bool PathConstraintChecker::checkTransition(const SLState& from, const SLState& 
 
 bool PathConstraintChecker::isCollidingWithObstacle(const SLState& state, 
                                                   const SLObstacle& obs) const {
-    // 考虑安全边界的碰撞检测
-    double s_min = obs.s_center - obs.length / 2.0 - obs.safety_margin;
-    double s_max = obs.s_center + obs.length / 2.0 + obs.safety_margin;
-    double l_min = obs.l_center - obs.width / 2.0 - obs.safety_margin;
-    double l_max = obs.l_center + obs.width / 2.0 + obs.safety_margin;
+    if (!obs.polygon) return false;
     
-    return (state.s >= s_min && state.s <= s_max &&
-            state.l >= l_min && state.l <= l_max);
+    Vec2d point(state.s, state.l);
+    // 考虑安全边界的碰撞检测
+    double dist = CollisionDetection::distance_to(obs.polygon, point);
+    return dist <= obs.safety_margin;
 }
 
 bool PathConstraintChecker::checkInterpolatedPath(const SLState& from, const SLState& to) const {
@@ -962,8 +960,11 @@ void speed_DP_debug() {
     std::cout << "\n=== 障碍物信息 ===" << std::endl;
     for (size_t i = 0; i < speed_obstacles.size(); ++i) {
         const auto& obs = speed_obstacles[i];
-        std::cout << "障碍物" << i << ": t=[" << obs.t_in << ", " << obs.t_out 
-                  << "], s=[" << obs.s_in << ", " << obs.s_out << "]" << std::endl;
+        if (obs.polygon) {
+            auto aabb = obs.polygon->aabb();
+            std::cout << "障碍物" << i << ": t=[" << aabb.min_x << ", " << aabb.max_x 
+                      << "], s=[" << aabb.min_y << ", " << aabb.max_y << "]" << std::endl;
+        }
     }
     
     // 4. 创建速度规划策略

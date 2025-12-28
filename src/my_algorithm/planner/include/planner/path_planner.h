@@ -42,7 +42,7 @@ public:
     std::vector<general::TrajectoryPoint> planPath(
         const std::shared_ptr<general::FrenetFrame>& frenet_frame,
         const general::FrenetPoint& planning_start_point,
-        const std::vector<general::FrenetPoint>& static_obstacles);
+        const std::vector<std::vector<general::FrenetPoint>>& static_obstacles);
 
     // 获取路径规划结果
     const std::vector<general::FrenetPoint>& getDPPath() const { return dp_path_; }
@@ -66,13 +66,13 @@ private:
     void resetNearestObsDecision();
     void updateNearestObsDecision(
         double offset_s,
-        const std::vector<general::FrenetPoint>& static_obstacles_global,
-        const std::vector<general::FrenetPoint>& static_obstacles_local);
+        const std::vector<std::vector<general::FrenetPoint>>& static_obstacles_global,
+        const std::vector<std::vector<general::FrenetPoint>>& static_obstacles_local);
 
 
     // 生成凸空间
     void generateConvexSpace(
-        const std::vector<general::FrenetPoint>& static_obstacles,
+        const std::vector<std::vector<general::FrenetPoint>>& static_obstacles,
         std::vector<double>& l_min,
         std::vector<double>& l_max);
 

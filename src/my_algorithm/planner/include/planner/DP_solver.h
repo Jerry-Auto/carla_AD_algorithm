@@ -38,21 +38,18 @@ struct SLState {
 
 // SL障碍物表示
 struct SLObstacle {
-    double s_center;    // 障碍物中心s坐标
-    double l_center;    // 障碍物中心l坐标
-    double length;      // 障碍物长度（s方向）
-    double width;       // 障碍物宽度（l方向）
-    double safety_margin; // 安全边界
+    std::shared_ptr<general::Polygon2d> polygon;
+    double safety_margin;
     
-    SLObstacle(double s, double l, double len = 5.0, double wid = 2.0, double margin = 0.5)
-        : s_center(s), l_center(l), length(len), width(wid), safety_margin(margin) {}
+    SLObstacle(const std::vector<general::FrenetPoint>& corners, double margin = 0.5);
+    
+    // 方便构造矩形障碍物 (s_center, l_center, length, width)
+    SLObstacle(double s, double l, double length = 5.0, double width = 2.0, double margin = 0.5);
 };
 
-// 辅助函数：将FrenetPoint转换为SLObstacle
+// 辅助函数：将FrenetPoint集合转换为SLObstacle
 std::vector<SLObstacle> convertToSLObstacles(
-    const std::vector<AD_algorithm::general::FrenetPoint>& frenet_obstacles,
-    double length = 5.0,
-    double width = 2.0,
+    const std::vector<std::vector<AD_algorithm::general::FrenetPoint>>& frenet_obstacles,
     double safety_margin = 0.5);
 
 // 路径规划策略类声明
@@ -79,7 +76,7 @@ public:
 private:
     double calculateObstacleCost(const std::vector<double> s_set, const std::vector<double> l_set) const ;
 
-    double calculateDistanceToRectangle(const double& s, const double& l, 
+    double calculateDistanceToObstacle(const double& s, const double& l, 
                                                    const SLObstacle& obs) const ;
 };
 
@@ -147,25 +144,24 @@ struct STState {
 
 // ST障碍物表示
 struct STObstacle {
-    double t_in;     // 进入时间
-    double t_out;    // 离开时间
-    double s_in;     // 进入位置
-    double s_out;    // 离开位置
+    std::shared_ptr<general::Polygon2d> polygon;
     
-    STObstacle(double ti, double to, double si, double so)
-        : t_in(ti), t_out(to), s_in(si), s_out(so) {}
+    STObstacle(const std::vector<general::STPoint>& points);
+    
+    // 方便构造矩形障碍物
+    STObstacle(double t_start, double t_end, double s_start, double s_end);
     
     // 检查(t,s)点是否在障碍物区域内
-    bool contains(double t, double s, double safety_margin = 2.0) const;
+    bool contains(double t, double s, double safety_margin = 0.5) const;
     
-    // 计算点到障碍物线段的最小距离
+    // 计算点到障碍物区域的最小距离
     double minDistanceTo(double t, double s) const;
 };
 
 
 // 辅助函数：将ST图节点转换为STObstacle
 std::vector<STObstacle> convertToSTObstacles(
-    const std::vector<std::unordered_map<std::string, double>>& st_graph);
+    const std::vector<std::vector<general::STPoint>>& st_graph);
 
 // 速度规划策略类声明
 class SpeedCostFunction : public planner::CostFunctionStrategy<STState> {

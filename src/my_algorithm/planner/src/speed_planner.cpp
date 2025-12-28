@@ -25,7 +25,7 @@ std::vector<STPoint> SpeedPlanner::planSpeed(
         const FrenetFrame& ref_path_frame,
         const TrajectoryPoint& planning_start_point,
         double reference_speed,
-        const std::vector<FrenetPoint>& dynamic_frenet_obstacles){
+        const std::vector<std::vector<FrenetPoint>>& dynamic_frenet_obstacles){
     // 障碍物和路径规划的轨迹都是基于全局坐标系的，都没有时间概念
     _dp_speed_profile.clear();
     _qp_speed_profile.clear();
@@ -130,7 +130,7 @@ std::vector<STPoint> SpeedPlanner::planSpeed(
 
     // 生成凸空间
     std::vector<double> s_lb,s_ub,s_dot_lb,s_dot_ub;
-    generate_convex_space(ref_path_frame,st_graph,s_lb,s_ub,s_dot_lb,s_dot_ub);
+    generate_convex_space(ref_path_frame,st_obstacles,s_lb,s_ub,s_dot_lb,s_dot_ub);
     
     // 验证凸空间约束
     if (s_lb.empty() || s_ub.empty() || s_dot_lb.empty() || s_dot_ub.empty()) {
@@ -169,53 +169,69 @@ std::vector<STPoint> SpeedPlanner::planSpeed(
 }
 
 
-std::vector<std::unordered_map<std::string, double>> SpeedPlanner::generateSTGraph(
-    const std::vector<FrenetPoint>& dynamic_obstacles,
+std::vector<std::vector<general::STPoint>> SpeedPlanner::generateSTGraph(
+    const std::vector<std::vector<FrenetPoint>>& dynamic_obstacles,
     double delta_l) {
     // 时间t是以当前时刻为0点的相对时间,
     // 也就是从现在开始，障碍物几秒后移动到我的安全边界内,这个点就是t_in
     // t_in对应会有位置s_in,离开安全边界的时间是t_out,位置是s_out
-    std::vector<std::unordered_map<std::string, double>> st_graph;
-    for (const auto& obs : dynamic_obstacles) {
+    std::vector<std::vector<general::STPoint>> st_graph;
+    for (const auto& corners : dynamic_obstacles) {
+        if (corners.empty()) continue;
+
+        // 假设所有角点速度一致（刚体）
+        double s_dot = corners[0].s_dot;
+        double l_dot = corners[0].l_dot;
+        
+        double s_min = std::numeric_limits<double>::max();
+        double s_max = -std::numeric_limits<double>::max();
+        double l_min = std::numeric_limits<double>::max();
+        double l_max = -std::numeric_limits<double>::max();
+        
+        for (const auto& p : corners) {
+            s_min = std::min(s_min, p.s);
+            s_max = std::max(s_max, p.s);
+            l_min = std::min(l_min, p.l);
+            l_max = std::max(l_max, p.l);
+        }
+        
+        double s_center = (s_min + s_max) / 2.0;
+        double l_center = (l_min + l_max) / 2.0;
+        double half_s = (s_max - s_min) / 2.0;
+        double half_l = (l_max - l_min) / 2.0;
+        double effective_delta_l = delta_l + half_l;
+
         // 1. 严格过滤静态障碍物 (Strict Static Obstacle Filter)
-        // 如果障碍物是静止的 (s_dot 接近 0)，它不可能横向移动 (l_dot 应该是 0)。
-        // 任何非零的 l_dot 都是感知噪声或Frenet投影误差。
-        // 因此，如果它是静止的且当前在车道外，直接忽略，绝对不会切入。
-        if (std::abs(obs.s_dot) < 0.5) {
-            if (std::abs(obs.l) > delta_l) {
+        if (std::abs(s_dot) < 0.5) {
+            if (l_min > delta_l || l_max < -delta_l) {
                 continue; // 静止物体在界外 -> 永远在界外
             }
             // 如果在界内，则是真正的静止阻挡物，需要保留
         }
 
         // 2. 忽略横向速度过小的障碍物
-        // 提高阈值到 0.5 m/s，过滤微小的抖动
-        if (std::abs(obs.l_dot) <= 0.5) {
+        if (std::abs(l_dot) <= 0.5) {
             continue; 
         }
 
         double t_in, t_out;
-        if (std::abs(obs.l) > delta_l) { // 障碍物初始在界外
-            if (obs.l * obs.l_dot > 0) { // 远离边界
+        if (std::abs(l_center) > effective_delta_l) { // 障碍物初始在界外
+            if (l_center * l_dot > 0) { // 远离边界
                 continue;
             } else { // 向边界移动
-                // 长度除以速度，就是花费的时间，还要减掉安全边界的距离花费的时间
-                t_in = std::abs(obs.l / obs.l_dot) - std::abs(delta_l / obs.l_dot);
-                t_out = std::abs(obs.l / obs.l_dot) + std::abs(delta_l / obs.l_dot);
+                t_in = std::abs(l_center / l_dot) - std::abs(effective_delta_l / l_dot);
+                t_out = std::abs(l_center / l_dot) + std::abs(effective_delta_l / l_dot);
             }
         } else { // 障碍物初始在界内
             t_in = 0.0;
-            if (obs.l_dot > 0) { // 向上移动
-                t_out = (delta_l - obs.l) / obs.l_dot;
+            if (l_dot > 0) { // 向上移动
+                t_out = (effective_delta_l - l_center) / l_dot;
             } else { // 向下移动
-                t_out = (-delta_l - obs.l) / obs.l_dot;
+                t_out = (-effective_delta_l - l_center) / l_dot;
             }
         }
         
-        // 3. 快速横向穿越过滤 (Ghost obstacles usually pass through quickly)
-        // 正常变道需要 3-5秒。
-        // 如果停留时间 < 1.5秒，说明横向速度极快 (> 1.3 m/s)，可能是投影误差
-        // 或者是垂直穿越的物体，但在弯道场景下，这通常是误报
+        // 3. 快速横向穿越过滤
         if (t_out - t_in < 1.5) {
             continue;
         }
@@ -224,27 +240,28 @@ std::vector<std::unordered_map<std::string, double>> SpeedPlanner::generateSTGra
             continue; // 忽略太远或太近的障碍物
         }
 
-        // Log the obstacle that passed all filters
-        // log("INFO", "Obstacle passed filter: s=" + std::to_string(obs.s) + 
-        //     ", l=" + std::to_string(obs.l) + 
-        //     ", s_dot=" + std::to_string(obs.s_dot) + 
-        //     ", l_dot=" + std::to_string(obs.l_dot) + 
-        //     ", t_in=" + std::to_string(t_in) + 
-        //     ", t_out=" + std::to_string(t_out));
+        // 创建 4 个 STPoint 组成的多边形 (平行四边形)
+        double s_at_tin = s_center + s_dot * t_in;
+        double s_at_tout = s_center + s_dot * t_out;
+        
+        // 纵向安全距离
+        double safety_s = 0.5; 
+        double total_half_s = half_s + safety_s;
 
-        std::unordered_map<std::string, double> obstacle;
-        obstacle["t_in"] = t_in;
-        obstacle["t_out"] = t_out;
-        obstacle["s_in"] = obs.s + obs.s_dot * t_in;
-        obstacle["s_out"] = obs.s + obs.s_dot * t_out;
-        st_graph.push_back(obstacle);
+        std::vector<general::STPoint> st_polygon(4);
+        st_polygon[0].t = t_in;  st_polygon[0].s = s_at_tin - total_half_s;
+        st_polygon[1].t = t_in;  st_polygon[1].s = s_at_tin + total_half_s;
+        st_polygon[2].t = t_out; st_polygon[2].s = s_at_tout + total_half_s;
+        st_polygon[3].t = t_out; st_polygon[3].s = s_at_tout - total_half_s;
+        
+        st_graph.push_back(st_polygon);
     }
     return st_graph;
 }
 
 void SpeedPlanner::generate_convex_space(
     FrenetFrame ref_path_frenet,
-    const std::vector<std::unordered_map<std::string, double>>& dynamic_obs_st_graph,
+    const std::vector<STObstacle>& st_obstacles,
     std::vector<double>& s_lb, std::vector<double>& s_ub,
     std::vector<double>& s_dot_lb, std::vector<double>& s_dot_ub)
 {
@@ -351,30 +368,23 @@ void SpeedPlanner::generate_convex_space(
         double nearest_lower_bound = std::numeric_limits<double>::lowest(); // 下边界（最大值）
         
         // 遍历所有障碍物，找到影响当前时间点的障碍物
-        for (const auto& cur_obs : dynamic_obs_st_graph) {
-            // 提取障碍物信息
-            double t_in = cur_obs.at("t_in");
-            double t_out = cur_obs.at("t_out");
-            double s_in = cur_obs.at("s_in");
-            double s_out = cur_obs.at("s_out");
+        for (const auto& obs : st_obstacles) {
+            if (!obs.polygon) continue;
+            const auto& pts = obs.polygon->points();
+            if (pts.size() < 4) continue;
+
+            double t_start = pts[0].x;
+            double t_end = pts[2].x;
             
             // 检查当前时间点是否在障碍物时间范围内
-            if (t_i < t_in || t_i > t_out) {
+            if (t_i < t_start || t_i > t_end) {
                 continue; // 当前时间点不受此障碍物影响
             }
             
-            // 获取障碍物参数
-            double obs_length = cur_obs.count("length") > 0 ? cur_obs.at("length") : 3.0;
-            double safety_margin_s = cur_obs.count("safety_margin_s") > 0 ? cur_obs.at("safety_margin_s") :0.5;
-            
-            // 计算障碍物在当前时间的中心位置
-            double k = (s_out - s_in) / (t_out - t_in); // 障碍物速度
-            double obs_s_center = s_in + k * (t_i - t_in);
-            
-            // 计算障碍物的安全边界
-            double half_obs_length_with_margin = obs_length / 2.0 + safety_margin_s;
-            double obs_lower_bound = obs_s_center - half_obs_length_with_margin; // 障碍物前边界
-            double obs_upper_bound = obs_s_center + half_obs_length_with_margin; // 障碍物后边界
+            // 计算当前时间下的 s 范围 (基于平行四边形假设)
+            double ratio = (t_i - t_start) / (t_end - t_start + 1e-9);
+            double obs_lower_bound = pts[0].y + ratio * (pts[3].y - pts[0].y);
+            double obs_upper_bound = pts[1].y + ratio * (pts[2].y - pts[1].y);
             
             // 根据轨迹点与障碍物的相对位置，更新最近的边界
             if (s_i > obs_upper_bound) {
@@ -387,33 +397,19 @@ void SpeedPlanner::generate_convex_space(
                 nearest_upper_bound = std::min(nearest_upper_bound, obs_lower_bound);
             } else {
                 // 轨迹点在障碍物安全区域内
-                // 这种情况通常是因为DP的离散误差或障碍物预测的不确定性导致的
-                // 或者是障碍物刚好擦过路径边缘
-                
                 // 计算重叠量
                 double overlap = std::min(s_i - obs_lower_bound, obs_upper_bound - s_i);
                 
-                // 如果重叠量很小（例如小于0.5米），我们认为这是数值误差，选择忽略或轻微调整
                 if (overlap < 0.5) {
-                    // 忽略此障碍物约束，或者给予一个宽松的边界
-                    // 这里选择忽略，让QP去平滑处理，因为DP已经尽力避让了
                     continue; 
                 } else {
-                    // 如果重叠量较大，说明真的有碰撞风险
-                    // 但为了防止QP无解或急刹车，我们不强制推开，而是限制在当前位置附近
-                    // 这样QP会尝试减速而不是报错
-                    
                     // 策略：根据相对位置决定是加速通过还是减速避让
-                    // 这里简单处理：如果是追尾风险（障碍物在前方），则限制上界
                     double dist_to_lower = std::abs(s_i - obs_lower_bound);
                     double dist_to_upper = std::abs(s_i - obs_upper_bound);
                     
                     if (dist_to_lower < dist_to_upper) {
-                        // 离下边界更近（障碍物在前方），限制上界
-                        // 但保证上界不小于当前s_i，避免无解
                         nearest_upper_bound = std::min(nearest_upper_bound, std::max(s_i, obs_lower_bound));
                     } else {
-                        // 离上边界更近（障碍物在后方），限制下界
                         nearest_lower_bound = std::max(nearest_lower_bound, std::min(s_i, obs_upper_bound));
                     }
                 }

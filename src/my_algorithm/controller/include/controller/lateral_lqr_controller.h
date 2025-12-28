@@ -18,6 +18,11 @@ public:
     // 设置参考轨迹
     bool set_trajectory(const std::vector<general::TrajectoryPoint>& trajectory);
 
+    // 设置车辆参数
+    void set_vehicle_params(std::shared_ptr<general::VehicleParams> params) {
+        vehicle_params_ = params;
+    }
+
     // 计算控制指令
     bool compute_control_cmd(
         const std::shared_ptr<general::VehicleState>& ego_state,
@@ -38,14 +43,8 @@ public:
 
 private:
     // 车辆参数
-    double _cf; // 前轮侧偏刚度系数
-    double _cr; // 后轮侧偏刚度系数
-    double _m;  // 质量
+    std::shared_ptr<general::VehicleParams> vehicle_params_;
     double _vx; // 沿着车身轴线的速度
-    double _Iz; // 车身转动惯量
-    double _a; // 质心到车前轴的距离
-    double _b; // 质心到车后轴的距离
-    double _steer_ratio; // 方向盘转角到轮胎转角之间的比值系数
 
     // lqr参数
     int _matrix_size;

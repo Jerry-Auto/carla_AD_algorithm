@@ -76,10 +76,7 @@ bool LonCascadePIDController::compute_control_cmd
     // 4. 设置控制指令
     cmd.set_acceleration(acceleration_cmd, ego_state->v);
     
-    if (enable_logging_) {
-        logger_->info("S_err:{:.3f}, V_err:{:.3f}, V_target:{:.3f}, Acc_cmd:{:.3f}, Lat_err:{:.3f}", 
-                    station_error, speed_error, final_target_v, acceleration_cmd, lat_error);
-    }
+    log("INFO", "S_err:", station_error, "V_err:", speed_error, "V_target:", final_target_v, "Acc_cmd:", acceleration_cmd, "Lat_err:", lat_error);
 
     return true;
 }

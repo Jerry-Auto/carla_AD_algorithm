@@ -3,6 +3,7 @@
 #include <math.h>
 #include <iostream>
 #include <vector>
+#include <memory>
 #include <OsqpEigen/OsqpEigen.h>
 #include <eigen3/Eigen/Sparse>
 #include "general_modules/common_types.h"

@@ -34,6 +34,11 @@ public:
     // 设置R矩阵
     void set_matrix_R(const std::vector<double>& vectro_R);
 
+    // 设置车辆参数
+    void set_vehicle_params(std::shared_ptr<general::VehicleParams> params) {
+        vehicle_params_ = params;
+    }
+
 private:
     // 计算目标点
     void compute_target_point(const std::vector<general::TrajectoryPoint>& trajectory,
@@ -56,24 +61,7 @@ private:
 
 private:
     // ------------------车身相关--------------------
-    // 前轮(两个轮之和)侧偏刚度系数
-    double _cf = -155494.663; 
-    // 后轮侧偏刚度系数
-    double _cr = -155494.663; 
-    // 质量
-    double _m = 1845.0;  
-    // 质心到车前轴的距离
-    double _lf = 2.852/2.0; 
-    // 质心到车后轴的距离
-    double _lr = 2.852/2.0; 
-    // 车身转动惯量
-    double _Iz;
-    // 加速度上下限
-    double _amin = -6.0;
-    double _amax = 4.0;
-    // 方向盘转角上下限
-    double _steer_min = -1.0;
-    double _steer_max = 1.0;
+    std::shared_ptr<general::VehicleParams> vehicle_params_;
 
     // 这些都是在不同模块之间传递数据用的,如果感觉麻烦,可以单独封装一个类,用来存储这些消息
     // 参考加速度与曲率
