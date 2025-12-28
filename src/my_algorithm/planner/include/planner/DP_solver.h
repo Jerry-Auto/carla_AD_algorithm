@@ -109,9 +109,10 @@ private:
     int _l_samples;      // l方向采样点数
     std::vector<double> _road_width_left_vec;// l方向采样范围
     std::vector<double> _road_width_right_vec;
+    double _resolution_l = 1.0; // l方向采样分辨率
 public:
     PathSamplingStrategy(const PathPlannerConfig& config,const std::vector<double>& road_width_left_vec,
-                         const std::vector<double>& road_width_right_vec);
+                         const std::vector<double>& road_width_right_vec,double resolution_l=1.0);
     
     std::vector<SLState> generateNextLayer(
         const std::vector<SLState>& current_layer,

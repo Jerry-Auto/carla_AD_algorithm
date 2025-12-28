@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 
+import glob
 import os
+
 import launch
-import launch_ros.actions
 import launch.actions
+import launch_ros.actions
 from ament_index_python.packages import get_package_share_directory
+from launch.actions import OpaqueFunction
 
 def generate_launch_description():
     # 获取相关包的路径
@@ -12,10 +15,54 @@ def generate_launch_description():
     carla_spawn_objects_pkg = get_package_share_directory('carla_spawn_objects')
     scenario_pkg = get_package_share_directory('scenario')
 
+    def _find_scenarios():
+        config_dir = os.path.join(scenario_pkg, 'config')
+        if not os.path.isdir(config_dir):
+            return None, []
+        return config_dir, glob.glob(os.path.join(config_dir, '*.xosc'))
+
+    def _prepare_and_publish_scenarios(context, *args, **kwargs):
+        config_dir, xosc_files = _find_scenarios()
+
+        scenarios = []
+        if config_dir:
+            for f in sorted(xosc_files):
+                name = os.path.splitext(os.path.basename(f))[0]
+                scenarios.append(f"{{name: '{name}', scenario_file: '{f}'}}")
+
+        # Fallback: if config dir is missing or empty, at least publish the selected scenario_file
+        if not scenarios:
+            scenario_file = launch.substitutions.LaunchConfiguration('scenario_file').perform(context)
+            if scenario_file:
+                name = os.path.splitext(os.path.basename(scenario_file))[0]
+                scenarios = [f"{{name: '{name}', scenario_file: '{scenario_file}'}}"]
+
+        if scenarios:
+            yaml_str = "{scenarios: [\n" + ", \n".join(scenarios) + "\n]}"
+        else:
+            yaml_str = '{scenarios: []}'
+
+        cmd = [
+            'ros2', 'topic', 'pub',
+            '--rate', '1.0',
+            '--qos-durability', 'transient_local',
+            '/carla/available_scenarios',
+            'carla_ros_scenario_runner_types/msg/CarlaScenarioList',
+            yaml_str,
+        ]
+
+        return [
+            launch.actions.ExecuteProcess(
+                cmd=cmd,
+                output='screen',
+                name='publish_available_scenarios',
+            )
+        ]
+
     # 声明 Launch 参数
     scenario_runner_path_arg = launch.actions.DeclareLaunchArgument(
         name='scenario_runner_path',
-        default_value=os.environ.get('SCENARIO_RUNNER_ROOT', ''),
+        default_value=os.environ.get('SCENARIO_RUNNER', os.environ.get('SCENARIO_RUNNER_ROOT', '')),
         description='Path to the scenario_runner root directory'
     )
 
@@ -59,6 +106,36 @@ def generate_launch_description():
         name='spawn_point',
         default_value='127.4,-195.4,2,0,0,180',
         description='Spawn point for the ego vehicle'
+    )
+
+    enable_scenario_runner_arg = launch.actions.DeclareLaunchArgument(
+        name='enable_scenario_runner',
+        default_value='True',
+        description='Enable carla_ros_scenario_runner launch'
+    )
+
+    enable_spawn_ego_arg = launch.actions.DeclareLaunchArgument(
+        name='enable_spawn_ego',
+        default_value='True',
+        description='Enable spawning ego vehicle (carla_example_ego_vehicle)'
+    )
+
+    enable_available_scenarios_arg = launch.actions.DeclareLaunchArgument(
+        name='enable_available_scenarios',
+        default_value='True',
+        description='Enable publishing /carla/available_scenarios list for RViz'
+    )
+
+    enable_vehicle_info_checker_arg = launch.actions.DeclareLaunchArgument(
+        name='enable_vehicle_info_checker',
+        default_value='True',
+        description='Enable vehicle_info_checker (helps ensure ego info is available)'
+    )
+
+    enable_road_width_pub_arg = launch.actions.DeclareLaunchArgument(
+        name='enable_road_width_pub',
+        default_value='True',
+        description='Enable road width publishing (/carla/road_boundaries)'
     )
 
     # 1. 启动 Scenario Runner 节点
@@ -156,6 +233,64 @@ def generate_launch_description():
         }]
     )
 
+    scenario_runner_launch = launch.actions.GroupAction(
+        condition=launch.conditions.IfCondition(
+            launch.substitutions.LaunchConfiguration('enable_scenario_runner')
+        ),
+        actions=[scenario_runner_launch],
+    )
+
+    spawn_and_publish_group = launch.actions.GroupAction(
+        actions=[
+            launch.actions.TimerAction(
+                period=2.0,
+                actions=[
+                    launch.actions.GroupAction(
+                        condition=launch.conditions.IfCondition(
+                            launch.substitutions.LaunchConfiguration('enable_spawn_ego')
+                        ),
+                        actions=[ego_vehicle_launch],
+                    ),
+                    launch.actions.GroupAction(
+                        condition=launch.conditions.IfCondition(
+                            launch.substitutions.LaunchConfiguration('enable_available_scenarios')
+                        ),
+                        actions=[OpaqueFunction(function=_prepare_and_publish_scenarios)],
+                    ),
+                ],
+            )
+        ]
+    )
+
+    post_spawn_group = launch.actions.GroupAction(
+        actions=[
+            launch.actions.TimerAction(
+                period=4.0,
+                actions=[
+                    launch.actions.GroupAction(
+                        condition=launch.conditions.IfCondition(
+                            launch.substitutions.LaunchConfiguration('enable_vehicle_info_checker')
+                        ),
+                        actions=[vehicle_info_checker],
+                    ),
+                    launch.actions.GroupAction(
+                        condition=launch.conditions.IfCondition(
+                            launch.substitutions.LaunchConfiguration('enable_road_width_pub')
+                        ),
+                        actions=[road_width_pub_node],
+                    ),
+                ],
+            )
+        ]
+    )
+
+    execute_group = launch.actions.GroupAction(
+        condition=launch.conditions.IfCondition(
+            launch.substitutions.LaunchConfiguration('auto_execute')
+        ),
+        actions=[execute_scenario_cmd],
+    )
+
     return launch.LaunchDescription([
         scenario_runner_path_arg,
         scenario_file_arg,
@@ -165,29 +300,18 @@ def generate_launch_description():
         port_arg,
         role_name_arg,
         spawn_point_arg,
-        
-        # 启动顺序：
-        # 1. 先启动scenario runner（准备好等待车辆）
+        enable_scenario_runner_arg,
+        enable_spawn_ego_arg,
+        enable_available_scenarios_arg,
+        enable_vehicle_info_checker_arg,
+        enable_road_width_pub_arg,
+
+        # 1) Scenario runner (optional)
         scenario_runner_launch,
-        
-        # 2. 延迟2秒后生成车辆（确保scenario runner已准备好）
-        launch.actions.TimerAction(
-            period=2.0,
-            actions=[
-                ego_vehicle_launch,
-                available_scenarios_publisher,
-            ]
-        ),
-        
-        # 3. 延迟4秒后检查车辆信息
-        launch.actions.TimerAction(
-            period=4.0,
-            actions=[
-                vehicle_info_checker,
-                road_width_pub_node, # 启动道路宽度发布节点
-            ]
-        ),
-        
-        # 4. 最后执行场景（如果需要）
-        execute_scenario_cmd,
+        # 2) Spawn ego + publish scenario list (optional)
+        spawn_and_publish_group,
+        # 3) Post-spawn helpers (optional)
+        post_spawn_group,
+        # 4) Auto execute scenario (optional)
+        execute_group,
     ])

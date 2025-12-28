@@ -22,7 +22,7 @@ public:
         // assert(index < path_points_.size());
         return _ref_line[index];
     }
-    const size_t size() const {
+    size_t size() const {
         return _ref_line.size();
     }
 private:

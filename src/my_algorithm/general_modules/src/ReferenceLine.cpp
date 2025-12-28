@@ -323,7 +323,7 @@ bool ReferenceLine::smooth_reference_line() {
         return false;
     }
 
-    if (!_smooth_solver->solve()) {
+    if (_smooth_solver->solveProblem() != OsqpEigen::ErrorExitFlag::NoError) {
         std::cerr << "[smooth_reference_line] OSQP solve failed." << std::endl;
         return false;
     }

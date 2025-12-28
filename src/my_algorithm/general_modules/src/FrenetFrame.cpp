@@ -78,7 +78,7 @@ FrenetFrame::ProjectionResult FrenetFrame::project_to_path(double x, double y) c
 }
 
 // ===== 新增：带状态记忆的匹配 =====
-size_t FrenetFrame::find_nearest_index_with_memory(double x, double y, double heading) const {
+size_t FrenetFrame::find_nearest_index_with_memory(double x, double y, double /*heading*/) const {
     const auto& path = ref_line_.get_path_points();
     size_t n = path.size();
     if (n == 0) return 0;

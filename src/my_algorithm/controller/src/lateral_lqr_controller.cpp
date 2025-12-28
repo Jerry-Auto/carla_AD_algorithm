@@ -6,8 +6,12 @@ namespace AD_algorithm {
 namespace controller {
 
 
-LateralLQRController::LateralLQRController()
+LateralLQRController::LateralLQRController(std::shared_ptr<general::Logger> logger)
+    : logger_(logger)
 {
+    if (!logger_) {
+        logger_ = std::make_shared<general::Logger>("LateralLQRController");
+    }
     //车辆静态参数初始化
     _cf = -130000;//N/rad
     _cr = -130000;
@@ -49,13 +53,20 @@ LateralLQRController::LateralLQRController()
 
 }
 
+bool LateralLQRController::set_trajectory(const std::vector<general::TrajectoryPoint>& trajectory) {
+    _frenet_frame = std::make_shared<general::FrenetFrame>(trajectory, false);
+    return true;
+}
+
 bool LateralLQRController::compute_control_cmd(
                         const std::shared_ptr<VehicleState>& ego_state,
-                        const double dt,ControlCMD & cmd)
+                        const double dt,
+                        const double cur_t,
+                        ControlCMD & cmd)
 {
-    auto LOG = rclcpp::get_logger("laterl_lqr_controller");
-    if (_enable_log) {
-        RCLCPP_INFO(LOG, "开始计算控制指令");
+    (void)cur_t; // unused
+    if (enable_logging_) {
+        logger_->info("开始计算控制指令");
     }
     _dt = dt;
 
@@ -69,7 +80,7 @@ bool LateralLQRController::compute_control_cmd(
 
     // 动态调整 R 矩阵权重：高速时加大对控制量的惩罚，抑制震荡
     // 基础 R=1.0, 速度每增加 10m/s, R 增加 5.0
-    double r_gain = 1.0 + 10.0 * (_vx / 10.0);
+    double r_gain = 1.0 + 10.0 * (_vx*_vx / 10.0);
     _matrix_R(0, 0) = r_gain;
 
     // 更新状态矩阵A (4x4)
@@ -100,8 +111,8 @@ bool LateralLQRController::compute_control_cmd(
     // 3. 求解LQR反馈矩阵 K (针对4维系统)
     if (!compute_lqr_feedack(_matrix_A_bar, _matrix_B_bar, _matrix_Q, _matrix_R, _iter_max, _tolerance))
     {
-        if (_enable_log) {
-            RCLCPP_ERROR(LOG, "反馈矩阵K求解失败");
+        if (enable_logging_) {
+            logger_->error("反馈矩阵K求解失败");
         }
         _matrix_K = Eigen::MatrixXd::Zero(1, _matrix_size);
     }
@@ -114,16 +125,16 @@ bool LateralLQRController::compute_control_cmd(
     double k_m = 0.0; // 匹配点的曲率
     if (!compute_err_vector(predicted_state, k_m))
     {
-        if (_enable_log) {
-            RCLCPP_ERROR(LOG, "误差向量计算失败");
+        if (enable_logging_) {
+            logger_->error("误差向量计算失败");
         }
         return false;
     }
 
     // 检查误差是否过大
     if (fabs(_matrix_err[0]) > 5.0) {
-        if (_enable_log) {
-            RCLCPP_WARN(LOG, "横向误差过大: %.2f米，可能匹配点错误", _matrix_err[0]);
+        if (enable_logging_) {
+            logger_->warn("横向误差过大: {:.2f}米，可能匹配点错误", _matrix_err[0]);
         }
     }
 
@@ -153,7 +164,7 @@ bool LateralLQRController::compute_control_cmd(
     // 6.2 动态增量限制
     // 与速度成反比：速度越高，允许的转角变化率越小
     // 基准: 10m/s 时允许 10度/帧
-    double max_rate_deg = 60.0 / std::max(_vx*_vx, 1.0);
+    double max_rate_deg = 60.0 / std::max(_vx*_vx*_vx, 1.0);
     max_rate_deg = std::min(std::max(max_rate_deg, 1.0), 10.0);
     double current_max_delta = max_rate_deg * M_PI / 180.0;
 
@@ -168,8 +179,8 @@ bool LateralLQRController::compute_control_cmd(
     // 7. 设置输出
     cmd.set_steer(u); 
 
-    if (_enable_log) {
-        RCLCPP_INFO(LOG, "方向盘转角:%.3f (FB:%.3f, FF:%.3f, dFB:%.3f)", u, u_fb, delta_ff, delta_u);
+    if (enable_logging_) {
+        logger_->info("方向盘转角:{:.3f} (FB:{:.3f}, FF:{:.3f}, dFB:{:.3f})", u, u_fb, delta_ff, delta_u);
     }
     return true;
 }
@@ -179,8 +190,8 @@ void LateralLQRController::set_q_matrix(const std::vector<double>& q_vector)
 {
     if (static_cast<int>(q_vector.size()) != _matrix_size)
     {
-        if (_enable_log) {
-            RCLCPP_ERROR(rclcpp::get_logger("laterl_lqr_controller"),"输入维度不正确 (预期 %d, 实际 %zu), 设置失败", _matrix_size, q_vector.size());
+        if (enable_logging_) {
+            logger_->error("输入维度不正确 (预期 {}, 实际 {}), 设置失败", _matrix_size, q_vector.size());
         }
         return;
     }
@@ -227,8 +238,6 @@ void LateralLQRController::predict_ego_state(
 bool LateralLQRController::compute_err_vector(
     const std::shared_ptr<VehicleState>& ego_state, double& matched_kappa)
 {
-    auto LOG = rclcpp::get_logger("lateral_lqr_controller");
-    
     // 1. 获取匹配点
     double ego_x = ego_state->x;
     double ego_y = ego_state->y;
@@ -271,8 +280,8 @@ bool LateralLQRController::compute_err_vector(
     _matrix_err[3] = ephi_dot;
     matched_kappa = target_point.kappa;
     
-    if (_enable_log) {
-        RCLCPP_INFO(LOG, "误差状态: ed=%.3f, ed_dot=%.3f, ephi=%.3f, ephi_dot=%.3f",
+    if (enable_logging_) {
+        logger_->info("误差状态: ed={:.3f}, ed_dot={:.3f}, ephi={:.3f}, ephi_dot={:.3f}",
                     ed, ed_dot, ephi, ephi_dot);
     }
     
@@ -285,13 +294,11 @@ bool LateralLQRController::compute_lqr_feedack(
      const Eigen::MatrixXd& Q, const Eigen::MatrixXd& R,
      const int iter_max,const double tolerance)
 {
-    auto LOG = rclcpp::get_logger("laterl_lqr_controller");
-    
     // 1. 维度检查
     if(A.rows()!=A.cols() || B.rows()!=A.rows() || Q.rows()!=Q.cols() || Q.rows()!=A.rows() || R.cols()!=B.cols())
     {
-        if (_enable_log) {
-            RCLCPP_ERROR(LOG,"输入矩阵维数不匹配");
+        if (enable_logging_) {
+            logger_->error("输入矩阵维数不匹配");
         }
         return false;
     }
@@ -317,8 +324,8 @@ bool LateralLQRController::compute_lqr_feedack(
         P = P_next;
     }
     
-    if (_enable_log) {
-        RCLCPP_ERROR(LOG, "LQR迭代达到最大次数仍未收敛");
+    if (enable_logging_) {
+        logger_->error("LQR迭代达到最大次数仍未收敛");
     }
     return false;
 }

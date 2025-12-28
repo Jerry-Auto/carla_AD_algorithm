@@ -82,7 +82,7 @@ public:
     const TrajectoryPoint& traj_point(size_t index) const {
         return _trajectory_points[index];
     }
-    const size_t size() const {
+    size_t size() const {
         return ref_line_.size();
     }
 private:

@@ -1,7 +1,6 @@
 #include "planner/path_planner.h"
 #include "planner/DP_solver.h"
 #include "general_modules/polynomial_curve.h"
-#include <iostream>
 #include <algorithm>
 #include <chrono>
 
@@ -10,21 +9,48 @@ namespace planner {
 
 using namespace general;
 
-PathPlanner::PathPlanner(const WeightCoefficients& weights,const PathPlannerConfig& config) 
-    : weights_(weights), config_(config) {
+PathPlanner::PathPlanner(const WeightCoefficients& weights, const PathPlannerConfig& config, 
+                         std::shared_ptr<general::Logger> logger) 
+    : weights_(weights), config_(config), logger_(logger) {
     qp_solver_ = std::make_shared<OsqpEigen::Solver>();
     qp_solver_->settings()->setWarmStart(true);
-    
-    // 默认日志回调
-    log_callback_ = [](const std::string& msg) {
-        std::cout << "[PathPlanner] " << msg << std::endl;
-    };
 }
 
-void PathPlanner::log(const std::string& message, const std::string& level) {
-    if (_enable_log && log_callback_) {
-        log_callback_("[" + level + "] " + message);
+void PathPlanner::set_road_width(const std::shared_ptr<AD_algorithm::general::VehicleState>& vehicle_state,double offset_s) {
+    _road_width_left_vec.clear();
+    _road_width_right_vec.clear();
+    // 假如是空的，或者数量不足，那么设置固定车道宽度
+    if(!vehicle_state || vehicle_state->road_width_left_vec.size() < 200 || vehicle_state->road_width_right_vec.size() < 200){
+        _road_width_left_vec = std::vector<double>(200,config_.lane_width/2);
+        // 注意：该工程约定右侧宽度为负值
+        _road_width_right_vec = std::vector<double>(200,-config_.lane_width/2);
+        _road_width_resolution = 1.0;
+        return;
     }
+    size_t start_index = static_cast<size_t>(offset_s / vehicle_state->road_width_resolution);
+    // 从车辆状态中提取道路宽度信息，考虑偏移
+    for(int i=start_index;i<vehicle_state->road_width_left_vec.size();i++){
+        double left_width = vehicle_state->road_width_left_vec[i];
+        double right_width = vehicle_state->road_width_right_vec[i];
+        // 留出车宽和安全边界
+        if(left_width<6.0&&right_width>-6.0){
+            //两侧同时很小，说明是窄道，直接使用原始值
+            _road_width_left_vec.push_back(config_.lane_width/2.0); 
+            _road_width_right_vec.push_back(-config_.lane_width/2.0);
+            continue;
+        }
+        if(left_width<6.0){
+            _road_width_left_vec.push_back(1.0);
+        }else{
+            _road_width_left_vec.push_back(left_width - 5.0);
+        }
+        if(right_width>-6.0){
+            _road_width_right_vec.push_back(-1.0);
+        }else{
+            _road_width_right_vec.push_back(right_width + 5.0);
+        }
+    }
+    _road_width_resolution = vehicle_state->road_width_resolution;
 }
 
 std::vector<TrajectoryPoint> PathPlanner::planPath(
@@ -38,54 +64,43 @@ std::vector<TrajectoryPoint> PathPlanner::planPath(
     
     // 验证配置
     if (!config_.validate()) {
-        log("Invalid configuration", "ERROR");
+        log("ERROR", "Invalid configuration");
         return {};
     }
 
     if (!frenet_frame) {
-        log("Frenet frame is null", "ERROR");
+        log("ERROR", "Frenet frame is null");
         return {};
     }
     
-    log("PathPlanner Config: s_step=" + std::to_string(config_.s_sample_distance) + 
+    log("INFO", "PathPlanner Config: s_step=" + std::to_string(config_.s_sample_distance) + 
         ", s_num=" + std::to_string(config_.s_sample_number));
 
     // 清除旧的路径
     dp_path_.clear();
     trajectory_.clear();
     
-    // log("Starting path planning with " + std::to_string(static_obstacles.size()) + " static obstacles");
+    // log("INFO", "Starting path planning with " + std::to_string(static_obstacles.size()) + " static obstacles");
     
     // 复制起始点偏移量，并确保起点s坐标为0
     // S偏移了，但是轨迹点和障碍物的全局x,y都是没变的
     FrenetPoint start_point = planning_start_point;
     double offset_s = start_point.s;
     start_point.s = 0.0;
-    // 通过规划起点把道路边界在起点之前的部分裁剪掉
-    size_t boundary_start_index = static_cast<size_t>(offset_s / _road_width_resolution);
-    if (boundary_start_index >= _road_width_left_vec.size()) {
-        log("Offset s exceeds road width vector size", "ERROR");
-        return {};
-    }
-    _road_width_left_vec = std::vector<double>(
-        _road_width_left_vec.begin() + boundary_start_index, _road_width_left_vec.end());
-    _road_width_right_vec = std::vector<double>(
-        _road_width_right_vec.begin() + boundary_start_index, _road_width_right_vec.end());
-        
-    // log("Planning start point: s=" + std::to_string(start_point.s) + 
+    
+    // log("INFO", "Planning start point: s=" + std::to_string(start_point.s) + 
     //     ", l=" + std::to_string(start_point.l));
     
     // 1. 使用DP进行路径搜索，起点的s坐标必须为0
-    log("Running DP path planning...");
+    log("INFO", "Running DP path planning...");
 
     SLState start_state(start_point.s, start_point.l, 
                        start_point.l_prime, start_point.l_prime_prime);
-    if(_enable_log){
-        std::cout << "[DEBUG] DP Start State: s=" << start_state.s 
-                  << ", l=" << start_state.l 
-                  << ", l'=" << start_state.l_prime 
-                  << ", l''=" << start_state.l_prime_prime << std::endl;
-    }
+    
+    log("DEBUG", "DP Start State: s=", start_state.s,
+        ", l=", start_state.l,
+        ", l'=", start_state.l_prime,
+        ", l''=", start_state.l_prime_prime);
 
     // 转换障碍物
     std::vector<SLObstacle> sl_obstacles;
@@ -100,7 +115,7 @@ std::vector<TrajectoryPoint> PathPlanner::planPath(
         -config_.lane_width * 0.5,//道路边界下界，相对于参考线对应的frenet中心线
         sl_obstacles
     );
-    auto sampling_strategy = std::make_shared<PathSamplingStrategy>(config_,_road_width_left_vec,_road_width_right_vec);
+    auto sampling_strategy = std::make_shared<PathSamplingStrategy>(config_, _road_width_left_vec, _road_width_right_vec, _road_width_resolution);
     auto backtrack_strategy = std::make_shared<DefaultBacktrackStrategy<SLState>>();
     
     // 配置DP规划器
@@ -128,7 +143,7 @@ std::vector<TrajectoryPoint> PathPlanner::planPath(
     auto result = dp_planner.plan(start_state, config_.s_sample_number);//每次都重新生成采样网格，较慢
     
     if (!result.success) {
-        log("DP planning failed: " + result.message, "ERROR");
+        log("ERROR", "DP planning failed: " + result.message);
         return {};
     }
 
@@ -141,8 +156,8 @@ std::vector<TrajectoryPoint> PathPlanner::planPath(
     // });
 
     log("DP planning succeeded, found path with " + std::to_string(result.optimal_path.size()) + " points");
-    log("Total cost: " + std::to_string(result.total_cost));
-    log("Computation time: " + std::to_string(result.computation_time_ms) + " ms");
+    log("INFO", "Total cost: " + std::to_string(result.total_cost));
+    log("INFO", "Computation time: " + std::to_string(result.computation_time_ms) + " ms");
     
     // 转换结果
     dp_path_.clear();
@@ -157,10 +172,10 @@ std::vector<TrajectoryPoint> PathPlanner::planPath(
 
     // 增加路径点密度
     IncreasePathDensity(dp_path_,config_.qp_dense_path_interval);
-    log("Increased path density to " + std::to_string(dp_path_.size()) + " points");
+    log("INFO", "Increased path density to " + std::to_string(dp_path_.size()) + " points");
 
     // 2. 生成凸空间
-    log("Generating convex space...");
+    log("INFO", "Generating convex space...");
     std::vector<double> l_min, l_max;
 
     std::vector<FrenetPoint> local_static_obstacles;
@@ -171,14 +186,17 @@ std::vector<TrajectoryPoint> PathPlanner::planPath(
         local_static_obstacles.push_back(local_obs);
     }
 
+    // 最近障碍物决策锁定：在调用 generateConvexSpace() 前更新锁定状态
+    updateNearestObsDecision(offset_s, static_obstacles, local_static_obstacles);
+
     generateConvexSpace(local_static_obstacles, l_min, l_max);
     
     // 3. QP路径优化
-    log("Running QP path optimization...");
+    log("INFO", "Running QP path optimization...");
     QP_pathOptimization(l_min, l_max);
     
     if (qp_path_.empty()) {
-        log("QP optimization failed: No path generated", "ERROR");
+        log("ERROR", "QP optimization failed: No path generated");
         return {};
     }
 
@@ -193,14 +211,14 @@ std::vector<TrajectoryPoint> PathPlanner::planPath(
     }
 
     // 4. 转换为笛卡尔坐标系
-    log("Converting to Cartesian coordinates...");
+    log("INFO", "Converting to Cartesian coordinates...");
     trajectory_ = frenet_frame->frenet_to_cartesian(qp_path_);
 
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
     
-    log("Path planning completed in " + std::to_string(duration.count()) + " ms");
-    log("Generated " + std::to_string(trajectory_.size()) + " trajectory points");
+    log("INFO", "Path planning completed in " + std::to_string(duration.count()) + " ms");
+    log("INFO", "Generated " + std::to_string(trajectory_.size()) + " trajectory points");
     return trajectory_;
 }
 
@@ -345,10 +363,10 @@ bool PathPlanner::QP_pathOptimization(const std::vector<double>& l_min,const std
         }
 
         if (lbi + car_width > ubi) {
-             std::cout << "[DEBUG] Infeasible constraint at index " << i 
-                       << ": lbi=" << lbi << ", ubi=" << ubi 
-                       << ", width=" << car_width 
-                       << ", start_idx=" << start_index << ", end_idx=" << end_index << std::endl;
+            log("DEBUG", "Infeasible constraint at index", i,
+                ": lbi=", lbi, ", ubi=", ubi,
+                ", width=", car_width,
+                ", start_idx=", start_index, ", end_idx=", end_index);
         }
     
         // 设置上下界
@@ -385,7 +403,7 @@ bool PathPlanner::QP_pathOptimization(const std::vector<double>& l_min,const std
     b_start << dp_path_.front().l, dp_path_.front().l_prime, dp_path_.front().l_prime_prime;
     
     if (std::abs(dp_path_.front().l) > 100.0) {
-        std::cout << "[DEBUG] QP Input Suspicious: dp_path_[0].l = " << dp_path_.front().l << std::endl;
+        log("DEBUG", "QP Input Suspicious: dp_path_[0].l =", dp_path_.front().l);
     }
 
     // 2.4 组合所有约束
@@ -436,45 +454,45 @@ bool PathPlanner::QP_pathOptimization(const std::vector<double>& l_min,const std
     qp_solver_->data()->setNumberOfConstraints(A_total.rows());
     
     if(!qp_solver_->data()->setHessianMatrix(H)) {
-        std::cerr << "[ERROR] Failed to set Hessian matrix" << std::endl;
+        log("ERROR", "Failed to set Hessian matrix");
         return false;
     }
     if(!qp_solver_->data()->setLinearConstraintsMatrix(A_total)) {
-        std::cerr << "[ERROR] Failed to set Linear Constraints matrix" << std::endl;
+        log("ERROR", "Failed to set Linear Constraints matrix");
         return false;
     }
     if(!qp_solver_->data()->setGradient(f)) return false;
     if(!qp_solver_->data()->setBounds(low_boundary_total, up_boundary_total)) return false;
     
     // Debug prints
-    if(_enable_log){
-        if (point_num > 0) {
-            std::cout << "[DEBUG] QP Setup:" << std::endl;
-            std::cout << "  b_start: " << b_start.transpose() << std::endl;
-            std::cout << "  relax_num: " << relax_num << std::endl;
-            if (!l_min.empty()) {
-                std::cout << "  l_min[0]: " << l_min[0] << ", l_max[0]: " << l_max[0] << std::endl;
-                if (l_min.size() > 1) std::cout << "  l_min[1]: " << l_min[1] << ", l_max[1]: " << l_max[1] << std::endl;
+    if (point_num > 0) {
+        log("DEBUG", "QP Setup:");
+        log("DEBUG", "b_start:", b_start.transpose());
+        log("DEBUG", "relax_num:", relax_num);
+        if (!l_min.empty()) {
+            log("DEBUG", "l_min[0]:", l_min[0], ", l_max[0]:", l_max[0]);
+            if (l_min.size() > 1) {
+                log("DEBUG", "l_min[1]:", l_min[1], ", l_max[1]:", l_max[1]);
             }
-            std::cout << "  low_boundary_collision[0]: " << low_boundary_collision[0] << std::endl;
-            std::cout << "  up_boundary_collision[0]: " << up_boundary_collision[0] << std::endl;
         }
+        log("DEBUG", "low_boundary_collision[0]:", low_boundary_collision[0]);
+        log("DEBUG", "up_boundary_collision[0]:", up_boundary_collision[0]);
     }
 
     if(!qp_solver_->initSolver()) return false; 
     if(qp_solver_->solveProblem() != OsqpEigen::ErrorExitFlag::NoError) return false;
 
     // 提取结果
-    auto solution = qp_solver_->getSolution();
-    if (solution.size() != 3 * point_num) {
-        log("QP solution size mismatch!", "ERROR");
+    Eigen::VectorXd solution = qp_solver_->getSolution();
+    if (static_cast<size_t>(solution.size()) != 3 * point_num) {
+        log("ERROR", "QP solution size mismatch!");
         return false;
     }
     
-    if (std::abs(solution[0]) > 100.0) {
-        std::cout << "[DEBUG] QP Output Suspicious: solution[0] (l) = " << solution[0] << std::endl;
-        std::cout << "[DEBUG] QP Output Suspicious: solution[1] (l') = " << solution[1] << std::endl;
-        std::cout << "[DEBUG] QP Output Suspicious: solution[2] (l'') = " << solution[2] << std::endl;
+    if (solution.size() >= 3 && std::abs(solution[0]) > 100.0) {
+        log("DEBUG", "QP Output Suspicious: solution[0] (l) =", solution[0]);
+        log("DEBUG", "QP Output Suspicious: solution[1] (l') =", solution[1]);
+        log("DEBUG", "QP Output Suspicious: solution[2] (l'') =", solution[2]);
         return false;
     }
 
@@ -536,16 +554,66 @@ void PathPlanner::generateConvexSpace(
     const std::vector<FrenetPoint>& static_obstacles,
     std::vector<double>& l_min,
     std::vector<double>& l_max) {
-    
-    double road_up = config_.lane_width * 1.5 - config_.safety_margin;
-    double road_low = -config_.lane_width * 0.5 + config_.safety_margin;
-    
-    l_min.resize(dp_path_.size(), road_low);
-    l_max.resize(dp_path_.size(), road_up);
+
+    // 道路边界：使用 road width 向量按 s 查找（线性插值）
+    // 约定：_road_width_left_vec / _road_width_right_vec 的起点与规划起点对齐，分辨率约为 1m。
+    // 其中 left/right 存储的是“参考线到左右边界的距离”(>=0)。
+    const double resolution = (_road_width_resolution > 1e-6) ? _road_width_resolution : 1.0;
+    auto lerp = [](double a, double b, double t) { return a + (b - a) * t; };
+
+    auto widthAtS = [&](const std::vector<double>& vec, double s, double default_value) -> double {
+        if (vec.empty()) return default_value;
+        if (s <= 0.0) return vec.front();
+
+        const double idx_f = s / resolution;
+        const int idx0 = static_cast<int>(std::floor(idx_f));
+        const int idx1 = idx0 + 1;
+        const double t = idx_f - static_cast<double>(idx0);
+
+        if (idx0 < 0) return vec.front();
+        if (idx0 >= static_cast<int>(vec.size()) - 1) return vec.back();
+        return lerp(vec[idx0], vec[idx1], t);
+    };
+
+    l_min.resize(dp_path_.size());
+    l_max.resize(dp_path_.size());
+
+    for (size_t i = 0; i < dp_path_.size(); ++i) {
+        const double s = dp_path_[i].s;
+        // 注意：该工程约定 left 宽度为正，right 宽度为负
+        const double left_w = widthAtS(_road_width_left_vec, s, config_.lane_width * 0.5);
+        const double right_w = widthAtS(_road_width_right_vec, s, -config_.lane_width * 0.5);
+
+        // Frenet：l>0 在左侧，l<0 在右侧
+        // right_w 本身为负，所以道路下界应直接取 right_w 再加 safety_margin 向内收缩
+        const double road_up = left_w - config_.safety_margin;
+        const double road_low = right_w + config_.safety_margin;
+
+        // 防御：如果道路宽度数据异常导致上下界反转，退化为零宽并避免 NaN
+        if (road_low <= road_up) {
+            l_min[i] = road_low;
+            l_max[i] = road_up;
+        } else {
+            const double mid = 0.5 * (road_low + road_up);
+            l_min[i] = mid;
+            l_max[i] = mid;
+        }
+        // log("DEBUG", "s=", s,", l_min=", l_min[i],", l_max=", l_max[i]);
+    }
 
     if (static_obstacles.empty()) {
         return;
     }
+
+    // 计算“最近障碍物”（只考虑 s>=0 的前向障碍物）
+    double nearest_obs_s = std::numeric_limits<double>::infinity();
+    for (const auto& obs : static_obstacles) {
+        if (obs.s >= 0.0 && obs.s < nearest_obs_s) {
+            nearest_obs_s = obs.s;
+        }
+    }
+    const bool has_nearest_obs = std::isfinite(nearest_obs_s);
+
     double obs_length = 5.0;
     double obs_width = 2.0;
     
@@ -567,17 +635,26 @@ void PathPlanner::generateConvexSpace(
         int center_index = findClosestIndex(obs.s);
         if (center_index == -1) continue;
         
-        std::cout << "[DEBUG] Obs at s=" << obs.s << ", l=" << obs.l 
-                  << ", center_idx=" << center_index 
-                  << ", dp_l=" << dp_path_[center_index].l << std::endl;
+        log("DEBUG", "Obs at s=", obs.s,
+            ", l=", obs.l,
+            ", center_idx=", center_index,
+            ", dp_l=", dp_path_[center_index].l);
 
-        if (dp_path_[center_index].l > obs.l) { // 左侧绕行
+        // 对“最近障碍物”使用锁定决策（近5次多数投票后锁定），其他障碍物仍按当前DP相对位置决定
+        NearestObsDecision decision = NearestObsDecision::Unknown;
+        if (has_nearest_obs && std::abs(obs.s - nearest_obs_s) < 1e-3 && locked_nearest_obs_decision_ != NearestObsDecision::Unknown) {
+            decision = locked_nearest_obs_decision_;
+        } else {
+            decision = (dp_path_[center_index].l > obs.l) ? NearestObsDecision::BypassLeft : NearestObsDecision::BypassRight;
+        }
+
+        if (decision == NearestObsDecision::BypassLeft) { // 左侧绕行
             // 增加纵向缓冲距离，使车辆提前开始变道
             double longitudinal_buffer = 10.0; 
             int start_index = findClosestIndex(obs.s - obs_length/2.0 - longitudinal_buffer);
             int end_index = findClosestIndex(obs.s + obs_length/2.0 + longitudinal_buffer);
             
-            std::cout << "[DEBUG] Left bypass. start=" << start_index << ", end=" << end_index << std::endl;
+            log("DEBUG", "Left bypass. start=", start_index, ", end=", end_index);
 
             if (start_index == -1 || end_index == -1) continue;
             
@@ -590,7 +667,7 @@ void PathPlanner::generateConvexSpace(
             int start_index = findClosestIndex(obs.s - obs_length/2.0 - longitudinal_buffer);
             int end_index = findClosestIndex(obs.s + obs_length/2.0 + longitudinal_buffer);
             
-            std::cout << "[DEBUG] Right bypass. start=" << start_index << ", end=" << end_index << std::endl;
+            log("DEBUG", "Right bypass. start=", start_index, ", end=", end_index);
 
             if (start_index == -1 || end_index == -1) continue;
             
@@ -598,6 +675,119 @@ void PathPlanner::generateConvexSpace(
                 l_max[i] = std::min(l_max[i], obs.l - obs_width/2.0 - config_.safety_margin);
             }
         }
+    }
+}
+
+void PathPlanner::resetNearestObsDecision() {
+    nearest_obs_decision_history_.clear();
+    locked_nearest_obs_decision_ = NearestObsDecision::Unknown;
+    locked_nearest_obs_finalized_ = false;
+    locked_nearest_obs_global_s_ = std::numeric_limits<double>::quiet_NaN();
+}
+
+void PathPlanner::updateNearestObsDecision(
+    double offset_s,
+    const std::vector<FrenetPoint>& static_obstacles_global,
+    const std::vector<FrenetPoint>& static_obstacles_local) {
+
+    if (dp_path_.empty()) return;
+
+    // 找到最近的前向障碍物（local s >= 0）
+    int nearest_idx = -1;
+    double nearest_local_s = std::numeric_limits<double>::infinity();
+    for (size_t i = 0; i < static_obstacles_local.size(); ++i) {
+        const auto& obs = static_obstacles_local[i];
+        if (obs.s >= 0.0 && obs.s < nearest_local_s) {
+            nearest_local_s = obs.s;
+            nearest_idx = static_cast<int>(i);
+        }
+    }
+
+    // 没有前向障碍物：清空锁定
+    if (nearest_idx < 0 || !std::isfinite(nearest_local_s)) {
+        if (!nearest_obs_decision_history_.empty() || locked_nearest_obs_finalized_) {
+            resetNearestObsDecision();
+        }
+        return;
+    }
+
+    const double nearest_global_s = (nearest_idx < static_cast<int>(static_obstacles_global.size()))
+                                       ? static_obstacles_global[nearest_idx].s
+                                       : (offset_s + nearest_local_s);
+
+    // 如果已越过当前锁定障碍物：重置并重新计数
+    const double pass_clearance_s = 2.0;
+    if (std::isfinite(locked_nearest_obs_global_s_)) {
+        if (offset_s - locked_nearest_obs_global_s_ > pass_clearance_s) {
+            resetNearestObsDecision();
+        }
+    }
+
+    // 如果当前最近障碍物与锁定对象差异很大（例如场景切换/障碍物列表突变），也重置
+    const double switch_threshold_s = 2.0;
+    if (std::isfinite(locked_nearest_obs_global_s_) && std::abs(nearest_global_s - locked_nearest_obs_global_s_) > switch_threshold_s) {
+        resetNearestObsDecision();
+    }
+
+    // 初始化锁定对象
+    if (!std::isfinite(locked_nearest_obs_global_s_)) {
+        locked_nearest_obs_global_s_ = nearest_global_s;
+    }
+
+    // 若已锁定最终决策，则不再更新历史，保持决策不变直到越过该障碍物
+    if (locked_nearest_obs_finalized_) {
+        return;
+    }
+
+    // 计算本次对最近障碍物的“原始决策”（基于DP路径相对位置）
+    auto findClosestIndex = [&](double target_s) -> int {
+        if (dp_path_.empty()) return -1;
+        if (target_s < dp_path_.front().s) return 0;
+        if (target_s >= dp_path_.back().s) return static_cast<int>(dp_path_.size()) - 1;
+
+        for (size_t i = 0; i + 1 < dp_path_.size(); i++) {
+            if (target_s >= dp_path_[i].s && target_s < dp_path_[i + 1].s) {
+                return (std::abs(target_s - dp_path_[i].s) < std::abs(target_s - dp_path_[i + 1].s)) ? static_cast<int>(i)
+                                                                                                       : static_cast<int>(i + 1);
+            }
+        }
+        return -1;
+    };
+
+    const int center_index = findClosestIndex(static_obstacles_local[nearest_idx].s);
+    if (center_index < 0) return;
+
+    const NearestObsDecision raw_decision = (dp_path_[center_index].l > static_obstacles_local[nearest_idx].l)
+                                                ? NearestObsDecision::BypassLeft
+                                                : NearestObsDecision::BypassRight;
+
+    nearest_obs_decision_history_.push_back(raw_decision);
+    while (nearest_obs_decision_history_.size() > kNearestObsDecisionWindow) {
+        nearest_obs_decision_history_.pop_front();
+    }
+
+    // 多数投票
+    int left_cnt = 0;
+    int right_cnt = 0;
+    for (const auto& d : nearest_obs_decision_history_) {
+        if (d == NearestObsDecision::BypassLeft) left_cnt++;
+        if (d == NearestObsDecision::BypassRight) right_cnt++;
+    }
+
+    if (left_cnt > right_cnt) {
+        locked_nearest_obs_decision_ = NearestObsDecision::BypassLeft;
+    } else if (right_cnt > left_cnt) {
+        locked_nearest_obs_decision_ = NearestObsDecision::BypassRight;
+    } else {
+        // 平票：使用本次原始决策
+        locked_nearest_obs_decision_ = raw_decision;
+    }
+
+    // 历史满5次后锁定
+    if (nearest_obs_decision_history_.size() >= kNearestObsDecisionWindow) {
+        locked_nearest_obs_finalized_ = true;
+        log("DEBUG", "Nearest obstacle decision locked: global_s=", locked_nearest_obs_global_s_,
+            ", decision=", (locked_nearest_obs_decision_ == NearestObsDecision::BypassLeft ? "LEFT" : "RIGHT"));
     }
 }
 

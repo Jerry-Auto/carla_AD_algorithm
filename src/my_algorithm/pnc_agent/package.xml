@@ -22,6 +22,7 @@
   <depend>general_modules</depend>
   <depend>controller</depend>
   <depend>planner</depend>
+  <depend>carla_waypoint_types</depend>
 
   <exec_depend>libosqp-dev</exec_depend>
   <exec_depend>libosqpeigen-dev</exec_depend>

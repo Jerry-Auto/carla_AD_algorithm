@@ -1,60 +1,8 @@
 import os
-import glob
 import launch
 import launch_ros.actions
 from ament_index_python.packages import get_package_share_directory
 from launch.actions import OpaqueFunction
-
-def find_scenarios():
-    """
-    Locate the config directory of scenario package and find .xosc files.
-    """
-    try:
-        pkg_share = get_package_share_directory('scenario')
-        config_dir = os.path.join(pkg_share, 'config')
-        if os.path.isdir(config_dir):
-            return config_dir, glob.glob(os.path.join(config_dir, "*.xosc"))
-    except Exception:
-        pass
-    return None, []
-
-def prepare_and_publish_scenarios(context):
-    """
-    Collect .xosc files from scenario package and publish scenario list.
-    """
-    config_dir, xosc_files = find_scenarios()
-    
-    scenarios = []
-    if config_dir:
-        for f in sorted(xosc_files):
-            name = os.path.splitext(os.path.basename(f))[0]
-            scenarios.append(f"{{name: '{name}', scenario_file: '{f}'}}")
-        print(f"📁 Found {len(scenarios)} scenario(s) in: {config_dir}")
-    else:
-        print("⚠️  No scenario directory found.")
-
-    # Generate YAML string for CarlaScenarioList
-    if scenarios:
-        yaml_str = "{scenarios: [\n" + ", \n".join(scenarios) + "\n]}"
-    else:
-        yaml_str = "{scenarios: []}"
-
-    # Safely publish via ros2 topic pub
-    # We use a separate process to publish this continuously so RViz can pick it up anytime
-    cmd = [
-        "ros2", "topic", "pub", 
-        "--rate", "1.0",
-        "--qos-durability", "transient_local",
-        "/carla/available_scenarios",
-        "carla_ros_scenario_runner_types/msg/CarlaScenarioList",
-        yaml_str
-    ]
-    
-    return [launch.actions.ExecuteProcess(
-        cmd=cmd,
-        output='screen',
-        name='publish_available_scenarios'
-    )]
 
 def launch_custom_spawn_object(context, *args, **kwargs):
     """Spawn vehicle using objects.json from scenario package"""
@@ -108,9 +56,6 @@ def generate_launch_description():
         ),
         launch.actions.DeclareLaunchArgument(name='wait_for_ego', default_value='True'),
 
-        # 1. Publish available scenarios
-        OpaqueFunction(function=prepare_and_publish_scenarios),
-
         # 2. CARLA ROS Bridge
         launch.actions.IncludeLaunchDescription(
             launch.launch_description_sources.PythonLaunchDescriptionSource(
@@ -148,22 +93,7 @@ def generate_launch_description():
             }.items()
         ),
 
-        # 5. Scenario Runner
-        launch.actions.IncludeLaunchDescription(
-            launch.launch_description_sources.PythonLaunchDescriptionSource(
-                os.path.join(get_package_share_directory('carla_ros_scenario_runner'), 'carla_ros_scenario_runner.launch.py')
-            ),
-            launch_arguments={
-                'host': launch.substitutions.LaunchConfiguration('host'),
-                'port': launch.substitutions.LaunchConfiguration('port'),
-                'role_name': launch.substitutions.LaunchConfiguration('role_name'),
-                'scenario_runner_path': launch.substitutions.LaunchConfiguration('scenario_runner_path'),
-                'wait_for_ego': launch.substitutions.LaunchConfiguration('wait_for_ego')
-            }.items()
-        ),
-
-        # 5.1 Road width publisher (reused from scenario/load_scenario.launch.py)
-        # Keep the implementation only in load_scenario; here we include it with other features disabled
+        # 5. Scenario-related features are delegated to scenario/load_scenario.launch.py
         launch.actions.IncludeLaunchDescription(
             launch.launch_description_sources.PythonLaunchDescriptionSource(
                 os.path.join(get_package_share_directory('scenario'), 'launch', 'load_scenario.launch.py')
@@ -172,15 +102,18 @@ def generate_launch_description():
                 'host': launch.substitutions.LaunchConfiguration('host'),
                 'port': launch.substitutions.LaunchConfiguration('port'),
                 'role_name': launch.substitutions.LaunchConfiguration('role_name'),
+                'scenario_runner_path': launch.substitutions.LaunchConfiguration('scenario_runner_path'),
+                'wait_for_ego': launch.substitutions.LaunchConfiguration('wait_for_ego'),
 
-                # Disable duplicated parts (run_all already starts them)
-                'enable_scenario_runner': 'False',
+                # start_simulation uses ScenarioRunner scenarios; ego is spawned by custom objects.json here
+                'enable_scenario_runner': 'True',
                 'enable_spawn_ego': 'False',
-                'enable_available_scenarios': 'False',
+                'enable_available_scenarios': 'True',
                 'enable_vehicle_info_checker': 'False',
-
-                # Only keep road width publishing
                 'enable_road_width_pub': 'True',
+
+                # No auto execution by default (user selects scenario in RViz)
+                'auto_execute': 'False',
             }.items()
         ),
 

@@ -5,6 +5,7 @@
 #include "general_modules/FrenetFrame.h"
 #include "general_modules/Trajectory.h"
 #include "general_modules/Vehicle.h"
+#include "general_modules/logger.h"
 
 namespace AD_algorithm {
 namespace controller {
@@ -12,7 +13,28 @@ namespace controller {
 class LateralLQRController
 {
 public:
-    LateralLQRController();
+    LateralLQRController(std::shared_ptr<general::Logger> logger = nullptr);
+
+    // 设置参考轨迹
+    bool set_trajectory(const std::vector<general::TrajectoryPoint>& trajectory);
+
+    // 计算控制指令
+    bool compute_control_cmd(
+        const std::shared_ptr<general::VehicleState>& ego_state,
+        const double dt,
+        const double cur_t,
+        general::ControlCMD & cmd
+    );
+
+    void set_log_enable(bool enable) {
+        enable_logging_ = enable;
+        if (logger_) logger_->set_enable(enable);
+    }
+
+    template<typename... Args>
+    void log(Args&&... args) {
+        if (logger_) logger_->log(std::forward<Args>(args)...);
+    }
 
 private:
     // 车辆参数
@@ -43,28 +65,11 @@ private:
     std::shared_ptr<general::FrenetFrame>  _frenet_frame;
     
 public:
-    // 规划出的轨迹拿来建立控制器的frenet坐标系，这里不用再做平滑了
-    bool set_trajectory(const std::vector<general::TrajectoryPoint>& trajectory){
-        _frenet_frame = std::make_shared<general::FrenetFrame>(trajectory,false);
-        auto LOG = rclcpp::get_logger("laterl_lqr_controller");
-        if(_enable_log){
-            RCLCPP_INFO(LOG, "轨迹长度(m):%.3f",(*_frenet_frame)[_frenet_frame->size()-1].accumulated_s);
-        }
-        return true;   
-    };
-
-    // 计算控制指令
-    bool compute_control_cmd(const std::shared_ptr<general::VehicleState>& ego_state,
-                             const double dt,general::ControlCMD & cmd);
-
     // 设置q矩阵
     void set_q_matrix(const std::vector<double>& q_vector);
 
     // 设置r矩阵
     void set_r_matrix(const double r);
-
-    // 设置日志开关
-    void set_log_enable(bool enable) { _enable_log = enable; }
 
 private:
     bool compute_err_vector(const std::shared_ptr<general::VehicleState>& ego_state,double& matched_kappa);
@@ -81,8 +86,9 @@ private:
     double _last_u_fb = 0.0;       // 上一次的反馈控制量（增量式控制用）
 
     const double _max_delta_steer = 10.0 * M_PI / 180.0; // 最大每步变化量，
-    
-    bool _enable_log = true; // 日志开关
+
+    std::shared_ptr<general::Logger> logger_;
+    bool enable_logging_ = true;
 };
 
 }}

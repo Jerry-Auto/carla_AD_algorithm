@@ -7,17 +7,7 @@
 namespace AD_algorithm {
 namespace general {
 
-TrajectoryManager::TrajectoryManager() {
-    // 设置默认日志回调
-    log_callback_ = [](const std::string& msg) {
-        std::cout << "[TrajectoryManager] " << msg << std::endl;
-    };
-}
-
-void TrajectoryManager::log(const std::string& message, const std::string& level) {
-    if (enable_logging_ && log_callback_) {
-        log_callback_("[" + level + "] " + message);
-    }
+TrajectoryManager::TrajectoryManager(std::shared_ptr<Logger> logger) : logger_(logger) {
 }
 
 TrajectoryPoint TrajectoryManager::calculatePlanningStartPoint(
@@ -60,7 +50,7 @@ TrajectoryPoint TrajectoryManager::calculatePlanningStartPoint(
     double longitudinal_error = std::abs(host_to_target.dot(tau_target));
     double lateral_error = std::abs(host_to_target.dot(nor_target));
     
-    log("Tracking errors - lateral: " + std::to_string(lateral_error) + 
+    log("INFO", "Tracking errors - lateral: " + std::to_string(lateral_error) + 
         ", longitudinal: " + std::to_string(longitudinal_error));
     
     // 3. 根据误差决定规划起点策略
@@ -82,7 +72,7 @@ TrajectoryPoint TrajectoryManager::calculatePlanningStartPoint(
         if(i+1>stitch_num){
             stitch_trajectory_.erase(stitch_trajectory_.begin(), stitch_trajectory_.begin()+(i-stitch_num));
         }
-        log("Stitching " + std::to_string(stitch_trajectory_.size()) + " points from previous trajectory");
+        log("INFO", "Stitching " + std::to_string(stitch_trajectory_.size()) + " points from previous trajectory");
     } else {
         // 3.2 误差过大，使用运动学外推
         previous_trajectory_.clear();
@@ -121,7 +111,7 @@ TrajectoryPoint TrajectoryManager::calculatePlanningStartPoint(
         stitch_trajectory_.pop_back();
     }
     
-    log("Planning start point: x=" + std::to_string(planning_start_point.x) + 
+    log("INFO", "Planning start point: x=" + std::to_string(planning_start_point.x) + 
         ", y=" + std::to_string(planning_start_point.y) + 
         ", v=" + std::to_string(planning_start_point.v));
     
@@ -138,11 +128,11 @@ void TrajectoryManager::classifyObstacles(
     dynamic_obstacles.clear();
     
     if (obstacles.empty()) {
-        log("No obstacles detected");
+        log("INFO", "No obstacles detected");
         return;
     }
     
-    log("Processing " + std::to_string(obstacles.size()) + " obstacles");
+    log("INFO", "Processing " + std::to_string(obstacles.size()) + " obstacles");
     
     for (const auto& obs : obstacles) {
         if (obs.id == ego_state->id) {
@@ -181,13 +171,13 @@ void TrajectoryManager::classifyObstacles(
         }
     }
     
-    log("Static obstacles: " + std::to_string(static_obstacles.size()) + 
+    log("INFO", "Static obstacles: " + std::to_string(static_obstacles.size()) + 
         ", Dynamic obstacles: " + std::to_string(dynamic_obstacles.size()));
 }
 
 std::vector<TrajectoryPoint> TrajectoryManager::stitchTrajectory(
     const std::vector<TrajectoryPoint>& current_trajectory,
-    int stitch_points) {
+    int /*stitch_points*/) {
     
     // int count=0;
     // if (enable_logging_ && current_trajectory.size() > 1) {
@@ -216,14 +206,14 @@ std::vector<TrajectoryPoint> TrajectoryManager::stitchTrajectory(
     
     // 添加拼接轨迹（如果存在）
     if (!stitch_trajectory_.empty()) {
-        log("添加 " + std::to_string(stitch_trajectory_.size()) + " 个规划起点之前的轨迹");
+        log("INFO", "添加 " + std::to_string(stitch_trajectory_.size()) + " 个规划起点之前的轨迹");
         final_trajectory.insert(final_trajectory.end(), 
                                 stitch_trajectory_.begin(), 
                                 stitch_trajectory_.end());                        
     }
 
     // 添加当前规划轨迹
-    log("添加 " + std::to_string(current_trajectory.size()) + " 个本周期规划的轨迹");
+    log("INFO", "添加 " + std::to_string(current_trajectory.size()) + " 个本周期规划的轨迹");
     
     // 检查拼接处是否存在重复点 (基于时间戳)
     if (!final_trajectory.empty() && !current_trajectory.empty()) {
@@ -246,7 +236,7 @@ std::vector<TrajectoryPoint> TrajectoryManager::stitchTrajectory(
                                 current_trajectory.end());
     }
 
-    log("拼接后的的轨迹有 " + std::to_string(final_trajectory.size()) + "个点");
+    log("INFO", "拼接后的的轨迹有 " + std::to_string(final_trajectory.size()) + "个点");
     
     // if (enable_logging_ && final_trajectory.size() > 1) {
     //     std::cout<<"拼接后的的轨迹信息："<<std::endl;

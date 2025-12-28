@@ -5,8 +5,7 @@ using namespace AD_algorithm::general;
 namespace AD_algorithm {
 namespace controller {
 
-MPCController::MPCController() : _log(rclcpp::get_logger("mpc_contrller")) 
-//_log只能用初始化列表进行初始化,因为_log没有默认构造,要是放在函数体里会先调用默认,在调用拷贝
+MPCController::MPCController() : ControllerBase("MPCController")
 {
     // 计算转动惯量
     _Iz = _m/2.0 * _lf * _lf + _m/2.0 * _lr * _lr;
@@ -59,8 +58,8 @@ bool MPCController::compute_control_cmd(
     // 3.求解MPC问题
     if(!solve_mpc())
     {
-        if (_enable_log) {
-            RCLCPP_ERROR(_log, "mpc二次规划求解失败!!!");
+        if (enable_logging_) {
+            logger_->error("mpc二次规划求解失败!!!");
         }
         return false;
     }
@@ -95,7 +94,7 @@ void MPCController::set_matrix_Q(const std::vector<double>& vector_Q)
     if (vector_Q.size() != static_cast<size_t>(_matrix_Q.rows()) ||
         vector_Q.size() != static_cast<size_t>(_matrix_Q.cols()))
     {
-        RCLCPP_ERROR(_log, "输入维数不争取,设置Q矩阵失败");
+        logger_->error("输入维数不争取,设置Q矩阵失败");
     }
 
     for (size_t i = 0; i < vector_Q.size(); i++)
@@ -110,7 +109,7 @@ void MPCController::set_matrix_R(const std::vector<double>& vector_R)
     if (vector_R.size() != static_cast<size_t>(_matrix_R.rows()) ||
         vector_R.size() != static_cast<size_t>(_matrix_R.cols()))
     {
-        RCLCPP_ERROR(_log, "输入维数不争取,设置R矩阵失败");
+        logger_->error("输入维数不争取,设置R矩阵失败");
     }
     
     for (size_t i = 0; i < vector_R.size(); i++)
@@ -225,7 +224,7 @@ void MPCController::update_state(
     _ref_kappa = target_point.kappa;
     _real_acc = ego_pro.s_dot_dot;
 
-    if (_enable_log) {
+    if (enable_logging_) {
         // 使用cout输出在运行carla_ad_demo的时候是不输出的,应该是级别不够
         // std::cout << "目标点: " << "x:" << target_point.x << ", " << "y:" << target_point.y << ", "
         //           << "v:" << target_point.v <<", "<< "heading:" << target_point.heading << ", "
@@ -241,8 +240,8 @@ void MPCController::update_state(
         //           << "heading_error:" << heading_error << ", " << "heading_dot_error:" << heading_dot_error << ", "
         //           << "station_error:" << station_error << ", " << "speed_error:" << speed_error << std::endl; 
 
-        RCLCPP_INFO(_log, "目标位置: x:%.3f, y:%.3f, v:%.3f, heading:%.3f",target_point.x, target_point.y, target_point.v, target_point.heading);
-        RCLCPP_INFO(_log, "实际位置: x:%.3f, y:%.3f, v:%.3f, heading:%.3f",ego_state->x, ego_state->y, ego_state->v, ego_state->heading);
+        logger_->info("目标位置: x:{:.3f}, y:{:.3f}, v:{:.3f}, heading:{:.3f}",target_point.x, target_point.y, target_point.v, target_point.heading);
+        logger_->info("实际位置: x:{:.3f}, y:{:.3f}, v:{:.3f}, heading:{:.3f}",ego_state->x, ego_state->y, ego_state->v, ego_state->heading);
     }
 }
 
@@ -349,7 +348,7 @@ bool MPCController::solve_mpc()
     }
 
     // debug信息
-    if (_enable_log) {
+    if (enable_logging_) {
         // std::cout << "--------------A矩阵-------------" << std::endl;
         // std::cout << _matrix_A << std::endl;
         // ...
@@ -378,7 +377,7 @@ bool MPCController::solve_mpc()
     _mpc_solver->clearSolver();
 
     // debug信息
-    if (_enable_log) {
+    if (enable_logging_) {
         std::cout << "--------------最优解-----------------" << std::endl;
         std::cout << solution << std::endl;
         std::cout << _matrix_control << std::endl;

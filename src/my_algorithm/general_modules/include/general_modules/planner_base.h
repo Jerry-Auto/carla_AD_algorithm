@@ -9,14 +9,37 @@
 #include "general_modules/Trajectory.h"
 #include "general_modules/Vehicle.h"
 #include "general_modules/FrenetFrame.h"
+#include "general_modules/logger.h"
 
 namespace AD_algorithm {
 namespace planner {
 
 class PlannerBase {
 public:
+    PlannerBase(const std::string& name = "Planner") {
+        logger_ = std::make_shared<general::Logger>(name);
+    }
     virtual ~PlannerBase() = default;
 
+    /**
+     * @brief 设置日志开关
+     */
+    virtual void set_log_enable(bool enable) {
+        if (logger_) logger_->set_enable(enable);
+    }
+
+protected:
+    /**
+     * @brief 辅助函数，方便子类调用
+     */
+    template<typename... Args>
+    void log(Args&&... args) const {
+        if (logger_) logger_->log(std::forward<Args>(args)...);
+    }
+
+    std::shared_ptr<general::Logger> logger_;
+
+public:
     /**
      * @brief 主规划接口
      * @param ego_state 车辆状态
@@ -50,12 +73,6 @@ public:
         const std::vector<general::TrajectoryPoint>& trajectory,
         std::string* reason = nullptr,
         size_t min_points = 5) = 0;
-
-    /**
-     * @brief 设置日志开关
-     * @param enable 是否开启
-     */
-    virtual void set_log_enable(bool enable) = 0;
 };
 
 } // namespace planner

@@ -58,7 +58,8 @@ PRIVATE
 target_link_libraries(${PROJECT_NAME}
   rclcpp::rclcpp          
   Eigen3::Eigen
-  general_modules::general_modules 
+  general_modules::general_modules
+  spdlog
 )
 
 # 添加测试可执行程序
@@ -72,6 +73,7 @@ target_link_libraries(test_controllers
   rclcpp::rclcpp
   Eigen3::Eigen
   general_modules::general_modules
+  spdlog
 )
 
 # 设置头文件搜索路径给测试程序

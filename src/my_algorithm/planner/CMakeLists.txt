@@ -24,9 +24,9 @@ if(NOT CMAKE_C_STANDARD)
   set(CMAKE_C_STANDARD 99)
 endif()
 
-# Default to C++14
+# Default to C++17
 if(NOT CMAKE_CXX_STANDARD)
-  set(CMAKE_CXX_STANDARD 14)
+  set(CMAKE_CXX_STANDARD 17)
 endif()
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
@@ -54,12 +54,13 @@ if(BUILD_TESTING)
 endif()
 
 # ========================
-# 创建共享库
+# 创建静态库
 # ========================
 
 set(LIBRARY_EXPORT_NAME "${PROJECT_NAME}_targets")
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-add_library(${PROJECT_NAME} SHARED
+add_library(${PROJECT_NAME} STATIC
   src/path_planner.cpp
   src/speed_planner.cpp
   src/emplanner.cpp

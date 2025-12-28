@@ -3,14 +3,39 @@
 #include <memory>
 #include "general_modules/Trajectory.h"
 #include "general_modules/Vehicle.h"
+#include "general_modules/logger.h"
 
 namespace AD_algorithm {
 namespace controller {
 
 class ControllerBase {
 public:
+    ControllerBase(const std::string& name = "Controller") {
+        logger_ = std::make_shared<general::Logger>(name);
+    }
     virtual ~ControllerBase() = default;
 
+    /**
+     * @brief 设置日志开关
+     */
+    virtual void set_log_enable(bool enable) {
+        enable_logging_ = enable;
+        if (logger_) logger_->set_enable(enable);
+    }
+
+protected:
+    /**
+     * @brief 辅助函数，方便子类调用
+     */
+    template<typename... Args>
+    void log(Args&&... args) const {
+        if (logger_) logger_->log(std::forward<Args>(args)...);
+    }
+
+    std::shared_ptr<general::Logger> logger_;
+    bool enable_logging_ = true;
+
+public:
     /**
      * @brief 设置参考轨迹
      * @param trajectory 轨迹点列表
@@ -31,12 +56,6 @@ public:
         const double dt,
         const double cur_t,
         general::ControlCMD & cmd) = 0;
-
-    /**
-     * @brief 设置日志开关
-     * @param enable 是否开启
-     */
-    virtual void set_log_enable(bool enable) = 0;
 };
 
 } // namespace controller

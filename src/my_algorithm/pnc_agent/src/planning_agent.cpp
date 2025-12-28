@@ -152,15 +152,18 @@ void PlanningAgent::road_boundaries_cb(const std_msgs::msg::Float32MultiArray::S
     _current_ego_state->road_width_left_vec.reserve(num_points);
     _current_ego_state->road_width_right_vec.reserve(num_points);
     
-    for (size_t i = 0; i < num_points; ++i) {
-        _current_ego_state->road_width_left_vec.push_back(msg->data[1 + 2 * i]);
-        _current_ego_state->road_width_right_vec.push_back(msg->data[1 + 2 * i + 1]);
-    }
+    // for (size_t i = 0; i < num_points; ++i) {
+    //     _current_ego_state->road_width_left_vec.push_back(msg->data[1 + 2 * i]);
+    //     _current_ego_state->road_width_right_vec.push_back(msg->data[1 + 2 * i + 1]);
+    //     std::cout<<_current_ego_state->road_width_left_vec[i]<<",";
+    //     std::cout<<_current_ego_state->road_width_right_vec[i]<<std::endl;
+    // }
     rclcpp::Logger logger = this->get_logger();
 
-    // RCLCPP_INFO(logger, "收到道路边界消息，采样点数: %zu，最大值: %.2f m，最小值: %.2f m",
-    //             num_points, *std::max_element(_current_ego_state->road_width_left_vec.begin(), _current_ego_state->road_width_left_vec.end()),
-    //             *std::min_element(_current_ego_state->road_width_right_vec.begin(), _current_ego_state->road_width_right_vec.end()));
+
+    RCLCPP_INFO(logger, "收到道路边界消息，采样点数: %zu，当前边界(左,右):( %.2f , %.2f m)",
+                num_points,_current_ego_state->road_width_left_vec[0]
+                ,-_current_ego_state->road_width_right_vec[0]);
 }
 
 void PlanningAgent::path_cb(const nav_msgs::msg::Path::SharedPtr waypoints)

@@ -104,7 +104,6 @@ void test_lqr(){
     double Iz = a*a*(m/2.0) + b*b*(m/2.0); // 按你公式计算
     double vx = 15.0;  // m/s
     double dt = 0.01;  // s
-    double psi = 0.0;
 
     Vehicle2DOF vehicle(m, Iz, a, b, Cf, Cr, vx, dt);
 
@@ -132,7 +131,7 @@ void test_lqr(){
     for (int i = 0; i < 2000; ++i)
     {
         ControlCMD cmd;
-        bool ok = controller.compute_control_cmd(ego_state, dt, cmd);
+        bool ok = controller.compute_control_cmd(ego_state, dt, 0.0, cmd);
         if (!ok)
         {
             std::cerr << "[ERROR] control failed!" << std::endl;
@@ -183,7 +182,7 @@ void test(){
     
     std::cout << "初始状态: y=" << state->y << "m, v=" << state->v << "m/s" << std::endl;
     
-    if (controller.compute_control_cmd(state, 0.01, cmd)) {
+    if (controller.compute_control_cmd(state, 0.01, 0.0, cmd)) {
         std::cout << "控制量计算成功!" << std::endl;
         std::cout << "前轮转角: " << cmd.get_steer() * 180.0 / M_PI << "度" << std::endl;
     }

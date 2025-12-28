@@ -5,6 +5,7 @@
 #include <vector>
 #include <functional>
 #include <string>
+#include <sstream>
 #include "general_modules/FrenetFrame.h"
 #include "general_modules/Trajectory.h"
 #include "general_modules/Vehicle.h"
@@ -46,17 +47,14 @@ public:
     std::shared_ptr<general::FrenetFrame> getGlobalFrenetFrame_ptr() const {
         return global_frenet_frame_;
     };
-    
+
     // 日志设置
     void set_log_enable(bool enable) override;
-    void setLogCallback(std::function<void(const std::string&)> callback);
-
+    
     // 获取历史轨迹
     const std::vector<general::TrajectoryPoint>& getLastTrajectory() const { return trajectory_manager_->getPreTrajectory(); }
 
 private:
-    void log(const std::string& message, const std::string& level = "INFO");
-    
     // 规划器使用的全局Frenet坐标系
     std::shared_ptr<general::FrenetFrame> global_frenet_frame_=nullptr;
 
@@ -72,9 +70,6 @@ private:
     std::unique_ptr<general::TrajectoryManager> trajectory_manager_;
     std::unique_ptr<PathPlanner> path_planner_;
     std::unique_ptr<SpeedPlanner> speed_planner_;
-    
-    std::function<void(const std::string&)> log_callback_;
-    bool enable_logging_ = true;
 };
 
 } // namespace planner

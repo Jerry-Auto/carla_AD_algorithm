@@ -5,14 +5,18 @@
 #include <functional>
 #include "general_modules/common_types.h"
 #include "general_modules/FrenetFrame.h"
+#include "general_modules/logger.h"
 
 
 namespace AD_algorithm {
 namespace general {
     class TrajectoryManager {
     public:
-        TrajectoryManager();
+        TrajectoryManager(std::shared_ptr<Logger> logger = nullptr);
         ~TrajectoryManager() = default;
+
+        void set_logger(std::shared_ptr<Logger> logger) { logger_ = logger; }
+        void set_log_enable(bool enable) { if (logger_) logger_->set_enable(enable); }
 
         // 设置当前时间
         void setCurrentTime(double current_time) { current_time_ = current_time; }
@@ -72,22 +76,19 @@ namespace general {
             has_latest_ego_state_ = false;
         }
 
-        // 日志输出
-        void set_log_enable(bool enable) { enable_logging_ = enable; }
-        void setLogCallback(std::function<void(const std::string&)> callback) {
-            log_callback_ = callback;
+    private:
+        template<typename... Args>
+        void log(Args&&... args) const {
+            if (logger_) logger_->log(std::forward<Args>(args)...);
         }
 
-    private:
-        void log(const std::string& message, const std::string& level = "INFO");
-
+        std::shared_ptr<Logger> logger_;
+        
         std::vector<TrajectoryPoint> previous_trajectory_;
         std::vector<TrajectoryPoint> stitch_trajectory_;
         bool is_first_run_ = true;
         double current_time_ = 0.0;
-        bool enable_logging_ = true;
         int _pre_pnt_num = 500; // 拼接上一周期的点的数量
-        std::function<void(const std::string&)> log_callback_;
 
         VehicleState latest_ego_state_;
         bool has_latest_ego_state_ = false;

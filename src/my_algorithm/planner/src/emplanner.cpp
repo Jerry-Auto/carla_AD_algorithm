@@ -9,45 +9,22 @@ namespace planner {
 
 using namespace general;
 
-EMPlanner::EMPlanner() {
-    // 默认日志回调
-    log_callback_ = [](const std::string& msg) {
-        std::cout << "[EMPlanner] " << msg << std::endl;
-    };
+EMPlanner::EMPlanner() : PlannerBase("EMPlanner") {
     weights_=WeightCoefficients();
 
-    // 初始化管理器
-    trajectory_manager_ = std::make_unique<TrajectoryManager>();
-    trajectory_manager_->setLogCallback(log_callback_);
+    // 初始化管理器，共享同一个 logger
+    trajectory_manager_ = std::make_unique<TrajectoryManager>(logger_);
     
-    // 初始化规划器
-    path_planner_ = std::make_unique<PathPlanner>(weights_, PathPlannerConfig());
-    path_planner_->setLogCallback(log_callback_);
+    // 初始化规划器，共享同一个 logger
+    path_planner_ = std::make_unique<PathPlanner>(weights_, PathPlannerConfig(), logger_);
     
-    speed_planner_ = std::make_unique<SpeedPlanner>(weights_,SpeedPlannerConfig());
-    speed_planner_->setLogCallback(log_callback_);
+    speed_planner_ = std::make_unique<SpeedPlanner>(weights_, SpeedPlannerConfig(), logger_);
     
-    log("EMPlanner initialized");
-}
-
-void EMPlanner::log(const std::string& message, const std::string& level) {
-    if (enable_logging_ && log_callback_) {
-        log_callback_("[" + level + "] " + message);
-    }
+    log("INFO", "EMPlanner initialized");
 }
 
 void EMPlanner::set_log_enable(bool enable) {
-    enable_logging_ = enable;
-    trajectory_manager_->set_log_enable(enable);
-    path_planner_->set_log_enable(enable);
-    speed_planner_->set_log_enable(enable);
-}
-
-void EMPlanner::setLogCallback(std::function<void(const std::string&)> callback) {
-    log_callback_ = callback;
-    trajectory_manager_->setLogCallback(callback);
-    path_planner_->setLogCallback(callback);
-    speed_planner_->setLogCallback(callback);
+    if (logger_) logger_->set_enable(enable);
 }
 
 void EMPlanner::setWeights(const WeightCoefficients& weights) {
@@ -93,7 +70,7 @@ std::vector<TrajectoryPoint> EMPlanner::plan(
     double current_time) {
     
     auto start_time = std::chrono::high_resolution_clock::now();
-    log("Starting planning cycle at time: " + std::to_string(current_time));
+    log("INFO", "Starting planning cycle at time: " + std::to_string(current_time));
     
     // 0. 设置当前时间
     trajectory_manager_->setCurrentTime(current_time);
@@ -102,32 +79,33 @@ std::vector<TrajectoryPoint> EMPlanner::plan(
     trajectory_manager_->updateEgoState(ego_state);
 
     // 1. 障碍物处理
-    log("Step 1: Classifying obstacles...");
+    log("INFO", "Step 1: Classifying obstacles...");
     std::vector<Obstacle> static_obstacles, dynamic_obstacles;
     trajectory_manager_->classifyObstacles(ego_state, obstacles, static_obstacles, dynamic_obstacles);
     
     if (static_obstacles.empty() && dynamic_obstacles.empty()) {
-        log("No relevant obstacles detected", "WARN");
+        log("WARN", "No relevant obstacles detected");
     }
     
     // 2. 计算规划起点
-    log("Step 2: Calculating planning start point...");
+    log("INFO", "Step 2: Calculating planning start point...");
     TrajectoryPoint planning_start_point = trajectory_manager_->calculatePlanningStartPoint(ego_state,weights_.forward_predict_time);
     
     // 3. 静态障碍物投影到Frenet坐标系
-    log("Step 3: Projecting static obstacles to Frenet frame...");
+    log("INFO", "Step 3: Projecting static obstacles to Frenet frame...");
     std::vector<FrenetPoint> static_frenet_obstacles;
     for (const auto& obs : static_obstacles) {
-        log("Raw Static Obstacle: id=" + std::to_string(obs.id) + " x=" + std::to_string(obs.x) + " y=" + std::to_string(obs.y));
+        log("INFO", "Raw Static Obstacle: id=" + std::to_string(obs.id) + " x=" + std::to_string(obs.x) + " y=" + std::to_string(obs.y));
         FrenetPoint fp = global_frenet_frame_->cartesian_to_frenet(obs.x, obs.y);
         static_frenet_obstacles.push_back(fp);
-        log("Static obstacle at (s=" + std::to_string(fp.s) + ", l=" + std::to_string(fp.l) + ")");
+        log("INFO", "Static obstacle at (s=" + std::to_string(fp.s) + ", l=" + std::to_string(fp.l) + ")");
     }
     
     // 4. 路径规划
-    log("Step 4: Path planning...");
-    path_planner_->set_road_width(ego_state);
+    log("INFO", "Step 4: Path planning...");
     FrenetPoint start_frenet = global_frenet_frame_->cartesian_to_frenet(planning_start_point);
+    auto ego_frenet = global_frenet_frame_->cartesian_to_frenet(*ego_state);
+    path_planner_->set_road_width(ego_state,start_frenet.s-ego_frenet.s);
 
     const size_t kMaxPathRetry = 3;
     std::vector<TrajectoryPoint> path_trajectory;
@@ -139,14 +117,14 @@ std::vector<TrajectoryPoint> EMPlanner::plan(
         path_trajectory = path_planner_->planPath(global_frenet_frame_, start_frenet, static_frenet_obstacles);
 
         if (path_trajectory.empty()) {
-            log("Path planning attempt " + std::to_string(attempt + 1) + " returned empty trajectory", "WARN");
+            log("WARN", "Path planning attempt " + std::to_string(attempt + 1) + " returned empty trajectory");
             continue;
         }
         auto path_frame = std::make_shared<FrenetFrame>(path_trajectory, false);
         if (!trajectory_manager_->isPathValid(*path_frame, &path_invalid_reason)) {
             std::string reason = path_invalid_reason.empty() ? "unknown" : path_invalid_reason;
-            log("Path planning attempt " + std::to_string(attempt + 1) + " produced invalid trajectory: " + reason, "WARN");
-            RCLCPP_WARN(rclcpp::get_logger("emplanner"), "路径校验失败: %s", reason.c_str());
+            log("WARN", "Path planning attempt " + std::to_string(attempt + 1) + " produced invalid trajectory: " + reason);
+            log("WARN","路径校验失败: %s", reason.c_str());
             continue;
         }
 
@@ -180,14 +158,14 @@ std::vector<TrajectoryPoint> EMPlanner::plan(
     for (size_t attempt = 0; attempt < kMaxSpeedRetry; ++attempt) {
         speed_profile = speed_planner_->planSpeed(*path_frame_ptr, planning_start_point, reference_speed, dynamic_frenet_obstacles);
         if (speed_profile.empty()) {
-            log("Speed planning attempt " + std::to_string(attempt + 1) + " returned empty profile", "WARN");
+            log("WARN", "Speed planning attempt " + std::to_string(attempt + 1) + " returned empty profile");
             continue;
         }
 
         if (!trajectory_manager_->isSpeedProfileValid(speed_profile, &speed_invalid_reason)) {
             std::string reason = speed_invalid_reason.empty() ? "unknown" : speed_invalid_reason;
-            log("Speed planning attempt " + std::to_string(attempt + 1) + " produced invalid profile: " + reason, "WARN");
-            RCLCPP_WARN(rclcpp::get_logger("emplanner"), "速度校验失败: %s", reason.c_str());
+            log("WARN", "Speed planning attempt " + std::to_string(attempt + 1) + " produced invalid profile: " + reason);
+            log("WARN", "速度校验失败: %s", reason.c_str());
             continue;
         }
 
@@ -203,21 +181,21 @@ std::vector<TrajectoryPoint> EMPlanner::plan(
     log("Speed planning completed, generated " + std::to_string(speed_profile.size()) + " points");
     
     // 6. 生成最终轨迹
-    log("Step 6: Generating final trajectory...");
+    log("INFO", "Step 6: Generating final trajectory...");
     auto final_trajectory = generateTrajectory(speed_profile, path_trajectory,planning_start_point.time_stamped);
     
     // std::cout<<"路径速度组合后起点信息(x,y,heading)："<<final_trajectory[0].x<<","<<final_trajectory[0].y<<","<<final_trajectory[0].heading<<std::endl;
 
 
     // 7. 轨迹拼接
-    log("Step 7: Stitching trajectory...");
+    log("INFO", "Step 7: Stitching trajectory...");
     final_trajectory = trajectory_manager_->stitchTrajectory(final_trajectory);
     
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
     
-    log("Planning completed in " + std::to_string(duration.count()) + " ms");
-    log("Final trajectory has " + std::to_string(final_trajectory.size()) + " points");
+    log("INFO", "Planning completed in " + std::to_string(duration.count()) + " ms");
+    log("INFO", "Final trajectory has " + std::to_string(final_trajectory.size()) + " points");
     
     return final_trajectory;
 }
@@ -235,11 +213,11 @@ std::vector<TrajectoryPoint> EMPlanner::generateTrajectory(
 {
     // 1. 输入验证
     if (speed_profile.empty() || path_trajectory.empty()) {
-        log("Cannot generate trajectory: empty input", "ERROR");
+        log("ERROR", "Cannot generate trajectory: empty input");
         return {};
     }
     if (path_trajectory.size() < 2) {
-        log("Path trajectory too short for FrenetFrame", "ERROR");
+        log("ERROR", "Path trajectory too short for FrenetFrame");
         return {};
     }
     
@@ -247,13 +225,11 @@ std::vector<TrajectoryPoint> EMPlanner::generateTrajectory(
     FrenetFrame path_frenet(path_trajectory,false);
     const auto& ref_path = path_frenet.get_reference_path();
     if (ref_path.empty()) {
-        log("Reference path is empty", "ERROR");
+        log("ERROR", "Reference path is empty");
         return {};
     }
-    if (enable_logging_) {
-        std::cout<<"起点信息(x,y,heading，s)："<<path_trajectory[0].x<<","<<path_trajectory[0].y<<","<<path_trajectory[0].heading<<","<<ref_path[0].accumulated_s<<std::endl;
-        std::cout<<"st起点信息(t,s,v)："<<speed_profile[0].t<<","<<speed_profile[0].s<<","<<speed_profile[0].s_dot<<std::endl;
-    }
+    log("INFO", "起点信息(x,y,heading，s)：", path_trajectory[0].x, ",", path_trajectory[0].y, ",", path_trajectory[0].heading, ",", ref_path[0].accumulated_s);
+    log("INFO", "st起点信息(t,s,v)：", speed_profile[0].t, ",", speed_profile[0].s, ",", speed_profile[0].s_dot);
     double max_s = ref_path.back().accumulated_s;
     std::vector<TrajectoryPoint> trajectory;
     trajectory.reserve(speed_profile.size());
@@ -320,7 +296,7 @@ std::vector<TrajectoryPoint> EMPlanner::generateTrajectory(
         trajectory.push_back(std::move(traj_point));
     }
     
-    log("Generated " + std::to_string(trajectory.size()) + " trajectory points");
+    log("INFO", "Generated " + std::to_string(trajectory.size()) + " trajectory points");
     return trajectory;
 }
 

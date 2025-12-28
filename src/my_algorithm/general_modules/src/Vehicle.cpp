@@ -126,8 +126,8 @@ bool ControlLookupTable::can_use(){
 // ==========================================
 // ControlCMD Implementation
 // ==========================================
-ControlCMD::ControlCMD(const std::string& bin_path, const std::string& json_path): _steer(0.0), _acceleration(0.0), _vehicle_speed(0.0),
-      _carla_steer(0.0), _carla_throttle(0.0), _carla_brake(0.0) {
+ControlCMD::ControlCMD(const std::string& bin_path, const std::string& json_path): _steer(0.0), _acceleration(0.0), _carla_steer(0.0),
+      _vehicle_speed(0.0), _carla_throttle(0.0), _carla_brake(0.0) {
         if (!_lut.load(bin_path, json_path)) {
         std::cout<<"标定表加载失败\n";
         }

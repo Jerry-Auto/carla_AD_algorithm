@@ -6,8 +6,12 @@ using namespace AD_algorithm::general;
 namespace AD_algorithm {
 namespace controller {
 // 构造函数,初始化默认控制器参数
-LonCascadePIDController::LonCascadePIDController()
+LonCascadePIDController::LonCascadePIDController(std::shared_ptr<general::Logger> logger)
+    : logger_(logger)
 {
+    if (!logger_) {
+        logger_ = std::make_shared<general::Logger>("LonCascadePIDController");
+    }
     _station_controller = std::make_unique<PIDController>();
     _speed_controller = std::make_unique<PIDController>();
     // 设置控制器参数
@@ -21,8 +25,8 @@ bool LonCascadePIDController::compute_control_cmd
     (const std::shared_ptr<VehicleState>& ego_state,const double dt,
      double cur_t,ControlCMD & cmd)
 {
+    (void)cur_t; // unused
     _dt = dt;
-    auto LOG = rclcpp::get_logger("lon_pid");
 
     // 1. 计算目标点 (基于当前位置的预瞄)
     // 纵向控制的目标点应该是去跟随某一个时间戳对应的轨迹点
@@ -72,8 +76,8 @@ bool LonCascadePIDController::compute_control_cmd
     // 4. 设置控制指令
     cmd.set_acceleration(acceleration_cmd, ego_state->v);
     
-    if (_enable_log) {
-        RCLCPP_INFO(LOG, "S_err:%.3f, V_err:%.3f, V_target:%.3f, Acc_cmd:%.3f, Lat_err:%.3f", 
+    if (enable_logging_) {
+        logger_->info("S_err:{:.3f}, V_err:{:.3f}, V_target:{:.3f}, Acc_cmd:{:.3f}, Lat_err:{:.3f}", 
                     station_error, speed_error, final_target_v, acceleration_cmd, lat_error);
     }
 

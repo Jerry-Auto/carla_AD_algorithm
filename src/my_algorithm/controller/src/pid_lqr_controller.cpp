@@ -3,9 +3,9 @@
 namespace AD_algorithm {
 namespace controller {
 
-PidLqrController::PidLqrController() {
-    _lon_controller = std::make_shared<LonCascadePIDController>();
-    _lat_controller = std::make_shared<LateralLQRController>();
+PidLqrController::PidLqrController() : ControllerBase("PidLqrController") {
+    _lon_controller = std::make_shared<LonCascadePIDController>(logger_);
+    _lat_controller = std::make_shared<LateralLQRController>(logger_);
 
     // 默认配置 (可以根据需要调整，或者提供配置接口)
     _lon_controller->set_station_controller(0.1, 0.0, 0.0);
@@ -32,11 +32,12 @@ bool PidLqrController::compute_control_cmd(
 {
     bool ret = true;
     ret &= _lon_controller->compute_control_cmd(ego_state, dt, cur_t, cmd);
-    ret &= _lat_controller->compute_control_cmd(ego_state, dt, cmd);
+    ret &= _lat_controller->compute_control_cmd(ego_state, dt, cur_t, cmd);
     return ret;
 }
 
 void PidLqrController::set_log_enable(bool enable) {
+    ControllerBase::set_log_enable(enable);
     _lon_controller->set_log_enable(enable);
     _lat_controller->set_log_enable(enable);
 }

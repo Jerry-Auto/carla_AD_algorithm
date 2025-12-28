@@ -34,9 +34,6 @@ public:
     // 设置R矩阵
     void set_matrix_R(const std::vector<double>& vectro_R);
 
-    // 设置日志开关
-    void set_log_enable(bool enable) override { _enable_log = enable; }
-
 private:
     // 计算目标点
     void compute_target_point(const std::vector<general::TrajectoryPoint>& trajectory,
@@ -110,15 +107,12 @@ private:
     // ------------------MPC求解器相关--------------------
     // 预测步长
     const int _horizon = 20;
-    // 日志类
-    rclcpp::Logger _log;
     // 前视距离
     double _preview_window = 5;
     // 求解器
     std::unique_ptr<OsqpEigen::Solver> _mpc_solver;
     // 加速度PID控制器
     
-    bool _enable_log = true; // 日志开关
     std::vector<general::TrajectoryPoint> _trajectory; // 存储轨迹
 };
 

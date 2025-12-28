@@ -15,9 +15,9 @@ struct WeightCoefficients {
     
     // 路径QP权重
     double path_qp_w_ref = 3.0;      // 降低参考线权重，允许为了避障提前偏离
-    double path_qp_w_dl = 4.0;       // 降低航向误差权重，允许更容易地改变航向
+    double path_qp_w_dl = 0.5;       // 降低航向误差权重，允许更容易地改变航向
     double path_qp_w_ddl = 10.00;     // 提高平滑度权重，促使轨迹更早开始弯曲以保持平滑
-    double path_qp_w_dddl = 0.5;
+    double path_qp_w_dddl = 10.0;
     double path_qp_w_mid = 0.02;
     double path_qp_w_l_end = 0.04;
     double path_qp_w_dl_end = 0.04;
@@ -31,8 +31,8 @@ struct WeightCoefficients {
     
     // 速度QP权重
     double speed_qp_w_ref_s = 1.0;      // 位置跟踪权重（新增！）
-    double speed_qp_w_ref_speed = 10.0;
-    double speed_qp_w_target_speed = 1.0; // 目标速度跟踪权重
+    double speed_qp_w_ref_speed = 5.0;
+    double speed_qp_w_target_speed = 10.0; // 目标速度跟踪权重
     double speed_qp_w_a = 0.05;
     double speed_qp_w_jerk = 0.2;
 
@@ -49,9 +49,9 @@ struct PathPlannerConfig {
 
     int l_sample_number = 15;          // l方向采样点数,应为奇数
 
-    double lane_width = 10;          // 车道宽度
+    double lane_width = 5.0;          // 车道宽度
     double car_width = 2.0;          // 车辆宽度
-    double safety_margin = 0.5;      // 安全边界
+    double safety_margin = 1.0;      // 安全边界
 
     double qp_dense_path_interval=1.0;  // QP规划输入点间隔，两个点之间的距离
     double final_path_interval = 0.1;  // 最终路径点密度间隔，两个点之间的距离

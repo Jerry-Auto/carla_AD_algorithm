@@ -6,24 +6,30 @@
 #include <unordered_map>
 #include <functional>
 #include <string>
+#include <sstream>
 #include "general_modules/Trajectory.h"
 #include "DP_solver.h"
 #include "planner/planner_weights.h" 
 #include "general_modules/Trajectory.h"
 #include "general_modules/FrenetFrame.h"
 #include "general_modules/Vehicle.h"
+#include "general_modules/logger.h"
 
 namespace AD_algorithm {
 namespace planner {
 
 class SpeedPlanner {
 public:
-    SpeedPlanner(const WeightCoefficients& weights,const SpeedPlannerConfig& config);
+    SpeedPlanner(const WeightCoefficients& weights, const SpeedPlannerConfig& config,
+                 std::shared_ptr<general::Logger> logger = nullptr);
     ~SpeedPlanner() = default;
+
+    void set_logger(std::shared_ptr<general::Logger> logger) { logger_ = logger; }
+    void set_log_enable(bool enable) { if (logger_) logger_->set_enable(enable); }
 
     bool set_config(const SpeedPlannerConfig& config) {
         if (!config.validate()) {
-            log("Invalid configuration in set_config", "ERROR");
+            if (logger_) logger_->log("ERROR", "Invalid configuration in set_config");
             return false;
         }
         config_ = config;
@@ -37,12 +43,13 @@ public:
         double reference_speed,
         const std::vector<AD_algorithm::general::FrenetPoint>& dynamic_frenet_obstacles); 
         
-     // 设置日志回调
-    void set_log_enable(bool enable) { _enable_log = enable; }
-    void setLogCallback(std::function<void(const std::string&)> callback) {
-        log_callback_ = callback;
-    }       
 private:
+    template<typename... Args>
+    void log(Args&&... args) const {
+        if (logger_) logger_->log(std::forward<Args>(args)...);
+    }
+
+    std::shared_ptr<general::Logger> logger_;
     //成员函数
     // 生成ST图
     std::vector<std::unordered_map<std::string, double>> generateSTGraph(
@@ -61,12 +68,6 @@ private:
          const std::vector<double>& s_dot_lb, const std::vector<double>& s_dot_ub,
          const double reference_speed);
         
-    void log(const std::string& message, const std::string& level = "INFO");
-
-    std::function<void(const std::string&)> log_callback_;
-    bool _enable_log = true;
-
-
 private:
     // 成员变量
     WeightCoefficients weights_;

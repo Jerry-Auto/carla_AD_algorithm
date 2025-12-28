@@ -241,7 +241,7 @@ bool PathConstraintChecker::checkState(const SLState& state) const {
 bool PathConstraintChecker::checkTransition(const SLState& from, const SLState& to) const {
     // 检查路径段是否与障碍物碰撞
     if (!checkInterpolatedPath(from, to)) {
-        std::cout << "[DEBUG] checkTransition failed: Collision in interpolated path" << std::endl;
+        // std::cout << "[DEBUG] checkTransition failed: Collision in interpolated path" << std::endl;
         return false;
     }
     // 检查dl/ds约束
@@ -290,8 +290,9 @@ bool PathConstraintChecker::checkInterpolatedPath(const SLState& from, const SLS
 // ==================== PathSamplingStrategy 成员函数实现 ====================
 
 PathSamplingStrategy::PathSamplingStrategy(const PathPlannerConfig& config
-    ,const std::vector<double>& road_width_left_vec,const std::vector<double>& road_width_right_vec)
-    : _s_step(config.s_sample_distance), _num_layers(config.s_sample_number), _l_samples(config.l_sample_number){
+    ,const std::vector<double>& road_width_left_vec,const std::vector<double>& road_width_right_vec,double resolution_l)
+    : _s_step(config.s_sample_distance), _num_layers(config.s_sample_number)
+    , _l_samples(config.l_sample_number),_resolution_l(resolution_l){
     if (_l_samples < 2) _l_samples = 2;  // 至少2个采样点
     // 计算l方向采样范围
     // 以车道线(参考线)为中心，横向均匀
@@ -299,13 +300,12 @@ PathSamplingStrategy::PathSamplingStrategy(const PathPlannerConfig& config
     for(int i=0;i<_num_layers;++i){
         double s = i*_s_step;
         // 通过s找到对应的road_width_left和road_width_right
-        int index = static_cast<int>(s);//默认是1m分辨率
-        if(index<0){
-            index =0;
+        int index = static_cast<int>(s/_resolution_l);//默认是1m分辨率
+        if (index >= static_cast<int>(road_width_left_vec.size())) {
+            index = road_width_left_vec.size() - 1;
         }
-        else if(index>=road_width_left_vec.size()){
-            index = road_width_left_vec.size()-1;
-        }
+        if (index < 0) index = 0;
+        
         _road_width_left_vec.push_back(road_width_left_vec[index]);
         _road_width_right_vec.push_back(road_width_right_vec[index]);
     }

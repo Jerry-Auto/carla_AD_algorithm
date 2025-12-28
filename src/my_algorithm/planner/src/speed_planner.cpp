@@ -13,21 +13,12 @@ namespace AD_algorithm {
 namespace planner {
 
 
-SpeedPlanner::SpeedPlanner(const WeightCoefficients& weights,const SpeedPlannerConfig& config)
-    : weights_(weights),config_(config) {
-    // 默认日志回调
-    log_callback_ = [](const std::string& msg) {
-        std::cout << "[SpeedPlanner] " << msg << std::endl;
-    };
+SpeedPlanner::SpeedPlanner(const WeightCoefficients& weights, const SpeedPlannerConfig& config,
+                           std::shared_ptr<general::Logger> logger)
+    : weights_(weights), config_(config), logger_(logger) {
     // 初始化
     _qp_solver = std::make_shared<OsqpEigen::Solver>();
     _qp_solver->settings()->setWarmStart(true);
-}
-
-void SpeedPlanner::log(const std::string& message, const std::string& level) {
-    if (_enable_log && log_callback_) {
-        log_callback_("[" + level + "] " + message);
-    }
 }
 
 std::vector<STPoint> SpeedPlanner::planSpeed(
@@ -41,20 +32,20 @@ std::vector<STPoint> SpeedPlanner::planSpeed(
 
     // 验证配置
     if (!config_.validate()) {
-        log("Invalid configuration", "ERROR");
+        log("ERROR", "Invalid configuration");
         return {};
     }
-    log("Step 5: Speed planning...");
+    log("INFO", "Step 5: Speed planning...");
 
     auto start_time = std::chrono::high_resolution_clock::now();
     
-    log("Starting speed planning with reference speed: " + std::to_string(reference_speed));
-    log("Dynamic obstacles: " + std::to_string(dynamic_frenet_obstacles.size()));
+    log("INFO", "Starting speed planning with reference speed: " + std::to_string(reference_speed));
+    log("INFO", "Dynamic obstacles: " + std::to_string(dynamic_frenet_obstacles.size()));
     
     // 1. 生成ST图
-    log("Generating ST graph...");
+    log("INFO", "Generating ST graph...");
     auto st_graph = generateSTGraph(dynamic_frenet_obstacles);
-    log("Generated ST graph with " + std::to_string(st_graph.size()) + " obstacles");
+    log("INFO", "Generated ST graph with " + std::to_string(st_graph.size()) + " obstacles");
     
     // 2. 计算规划起点（ST坐标系）
     STPoint start_point;
@@ -69,13 +60,13 @@ std::vector<STPoint> SpeedPlanner::planSpeed(
     start_point.s_dot_dot = planning_start_point.ax * cos_heading + 
                            planning_start_point.ay * sin_heading;
     
-    log("Planning start point: t=" + std::to_string(start_point.t) + 
+    log("INFO", "Planning start point: t=" + std::to_string(start_point.t) + 
         ", s=" + std::to_string(start_point.s) + 
         ", s_dot=" + std::to_string(start_point.s_dot) + 
         ", s_dot_dot=" + std::to_string(start_point.s_dot_dot));
     
     // 3. 使用DP进行速度规划
-    log("Running DP speed planning...");
+    log("INFO", "Running DP speed planning...");
     STState start_state(start_point.t, start_point.s, 
                        start_point.s_dot, start_point.s_dot_dot);
     
@@ -115,14 +106,14 @@ std::vector<STPoint> SpeedPlanner::planSpeed(
     auto result = dp_planner.planWithGrid(*_sample_grid, start_state, STState());
     
     if (!result.success) {
-        log("DP speed planning failed: " + result.message, "ERROR");
+        log("ERROR", "DP speed planning failed: " + result.message);
         return {};
     }
     
     log("DP speed planning succeeded, found profile with " + 
         std::to_string(result.optimal_path.size()) + " points");
-    log("Total cost: " + std::to_string(result.total_cost));
-    log("Computation time: " + std::to_string(result.computation_time_ms) + " ms");
+    log("INFO", "Total cost: " + std::to_string(result.total_cost));
+    log("INFO", "Computation time: " + std::to_string(result.computation_time_ms) + " ms");
     
     // 转换结果
     for (const auto& state : result.optimal_path) {
@@ -145,12 +136,12 @@ std::vector<STPoint> SpeedPlanner::planSpeed(
     if (s_lb.empty() || s_ub.empty() || s_dot_lb.empty() || s_dot_ub.empty()) {
         log("Convex space constraints are empty, skipping QP", "WARN");
     } else {
-        log("Convex space constraints generated successfully");
-        log("s_lb size: " + std::to_string(s_lb.size()) + ", s_ub size: " + std::to_string(s_ub.size()));
+        log("INFO", "Convex space constraints generated successfully");
+        log("INFO", "s_lb size: " + std::to_string(s_lb.size()) + ", s_ub size: " + std::to_string(s_ub.size()));
     }
 
     // QP二次规划
-    log("Running speed smoothing...");
+    log("INFO", "Running speed smoothing...");
     bool qp_success = QP_traj_optimal(s_lb,s_ub,s_dot_lb,s_dot_ub,reference_speed);
     
     if (!qp_success) {
@@ -166,14 +157,14 @@ std::vector<STPoint> SpeedPlanner::planSpeed(
     }
     
     // 5. 加密速度剖面
-    log("Increasing speed profile density...");
+    log("INFO", "Increasing speed profile density...");
     increaseSpeedProfile(_qp_speed_profile,config_.final_path_interval);
     
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
     
-    log("Speed planning completed in " + std::to_string(duration.count()) + " ms");
-    log("Generated " + std::to_string(_qp_speed_profile.size()) + " speed profile points");
+    log("INFO", "Speed planning completed in " + std::to_string(duration.count()) + " ms");
+    log("INFO", "Generated " + std::to_string(_qp_speed_profile.size()) + " speed profile points");
     return _qp_speed_profile;
 }
 
@@ -234,7 +225,7 @@ std::vector<std::unordered_map<std::string, double>> SpeedPlanner::generateSTGra
         }
 
         // Log the obstacle that passed all filters
-        // log("Obstacle passed filter: s=" + std::to_string(obs.s) + 
+        // log("INFO", "Obstacle passed filter: s=" + std::to_string(obs.s) + 
         //     ", l=" + std::to_string(obs.l) + 
         //     ", s_dot=" + std::to_string(obs.s_dot) + 
         //     ", l_dot=" + std::to_string(obs.l_dot) + 
@@ -451,9 +442,9 @@ void SpeedPlanner::generate_convex_space(
             s_ub[i] = middle;
             
             // 记录警告
-            std::cout << "警告: 轨迹点 " << i << " (t=" << t_i << ", s=" << s_i 
-                    << ") 的约束冲突，下边界=" << s_lb[i] << " > 上边界=" << s_ub[i]
-                    << "，已调整为 " << middle << std::endl;
+            log("WARN", "轨迹点", i, "(t=", t_i, ", s=", s_i, 
+                    ") 的约束冲突，下边界=", s_lb[i], " > 上边界=", s_ub[i],
+                    "，已调整为", middle);
         }
     }
 
@@ -518,30 +509,30 @@ bool SpeedPlanner::QP_traj_optimal(const std::vector<double>& s_lb, const std::v
     // 0. 初始化与验证
     size_t point_num = _dp_speed_profile.size();
     if (point_num < 2) {
-        log("Not enough points for QP optimization", "ERROR");
+        log("ERROR", "Not enough points for QP optimization");
         return false;
     }
 
     // 验证输入数据维度
     if (s_lb.size() != point_num || s_ub.size() != point_num ||
         s_dot_lb.size() != point_num || s_dot_ub.size() != point_num) {
-        log("Constraint vector size mismatch", "ERROR");
+        log("ERROR", "Constraint vector size mismatch");
         return false;
     }
 
     // 检查约束有效性
     for (size_t i = 0; i < point_num; i++) {
         if (s_lb[i] > s_ub[i]) {
-            log("Invalid position constraint at index " + std::to_string(i), "ERROR");
+            log("ERROR", "Invalid position constraint at index " + std::to_string(i));
             return false;
         }
         if (s_dot_lb[i] > s_dot_ub[i]) {
-            log("Invalid velocity constraint at index " + std::to_string(i), "ERROR");
+            log("ERROR", "Invalid velocity constraint at index " + std::to_string(i));
             return false;
         }
     }
 
-    log("Starting QP optimization for speed profile with " + std::to_string(point_num) + " points");
+    log("INFO", "Starting QP optimization for speed profile with " + std::to_string(point_num) + " points");
 
     // ==========================================
     // 1. 建立目标函数 (Cost Function)
@@ -710,7 +701,7 @@ bool SpeedPlanner::QP_traj_optimal(const std::vector<double>& s_lb, const std::v
         if (!_qp_solver->initSolver()) return false;
         
         if (_qp_solver->solveProblem() != OsqpEigen::ErrorExitFlag::NoError) {
-            log("QP solver failed", "ERROR");
+            log("ERROR", "QP solver failed");
             return false;
         }
         
@@ -729,7 +720,7 @@ bool SpeedPlanner::QP_traj_optimal(const std::vector<double>& s_lb, const std::v
         return true;
         
     } catch (const std::exception& e) {
-        log("QP optimization exception: " + std::string(e.what()), "ERROR");
+        log("ERROR", "QP optimization exception: " + std::string(e.what()));
         return false;
     }
 }

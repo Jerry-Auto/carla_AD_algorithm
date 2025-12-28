@@ -3,10 +3,14 @@
 
 #include <memory>
 #include <vector>
+#include <deque>
 #include <functional>
 #include <string>
+#include <sstream>
+#include <limits>
 #include "general_modules/FrenetFrame.h"
 #include "general_modules/Trajectory.h"
+#include "general_modules/logger.h"
 #include "planner/planner_weights.h"  // 添加包含
 #include "DP_solver.h"
 #include "OsqpEigen/OsqpEigen.h"
@@ -16,32 +20,18 @@ namespace planner {
 
 class PathPlanner {
 public:
-    PathPlanner(const WeightCoefficients& weights,const PathPlannerConfig& config);
+    PathPlanner(const WeightCoefficients& weights, const PathPlannerConfig& config, 
+                std::shared_ptr<general::Logger> logger = nullptr);
     ~PathPlanner() = default;
 
-    // 设置日志回调
-    void set_log_enable(bool enable) { _enable_log = enable; }
-    void setLogCallback(std::function<void(const std::string&)> callback) {
-        log_callback_ = callback;
-    }
-    void set_road_width(const std::shared_ptr<AD_algorithm::general::VehicleState>& vehicle_state) {
-        _road_width_left_vec.clear();
-        _road_width_right_vec.clear();
-        // 假如是空的，或者数量不足，那么设置固定车道宽度
-        if(!vehicle_state || vehicle_state->road_width_left_vec.size() < 200 || vehicle_state->road_width_right_vec.size() < 200){
-            _road_width_left_vec = std::vector<double>(200,config_.lane_width/2);
-            _road_width_right_vec = std::vector<double>(200,config_.lane_width/2);
-            _road_width_resolution = 1.0;
-            return;
-        }
-        _road_width_left_vec = vehicle_state->road_width_left_vec;
-        _road_width_right_vec = vehicle_state->road_width_right_vec;
-        _road_width_resolution = vehicle_state->road_width_resolution;
-    }
+    void set_logger(std::shared_ptr<general::Logger> logger) { logger_ = logger; }
+    void set_log_enable(bool enable) { if (logger_) logger_->set_enable(enable); }
+
+    void set_road_width(const std::shared_ptr<AD_algorithm::general::VehicleState>& vehicle_state,double offset_s) ;
 
     bool set_config(const PathPlannerConfig& config) {
         if (!config.validate()) {
-            log("Invalid configuration in set_config", "ERROR");
+            if (logger_) logger_->log("ERROR", "Invalid configuration in set_config");
             return false;
         }
         config_ = config;
@@ -52,7 +42,7 @@ public:
     std::vector<general::TrajectoryPoint> planPath(
         const std::shared_ptr<general::FrenetFrame>& frenet_frame,
         const general::FrenetPoint& planning_start_point,
-        const std::vector<general::FrenetPoint>& static_obstacles);  // 移除默认参数 = PathPlannerConfig()
+        const std::vector<general::FrenetPoint>& static_obstacles);
 
     // 获取路径规划结果
     const std::vector<general::FrenetPoint>& getDPPath() const { return dp_path_; }
@@ -60,6 +50,24 @@ public:
     const std::vector<general::TrajectoryPoint>& getTrajectory() const { return trajectory_; }
 
 private:
+    template<typename... Args>
+    void log(Args&&... args) const {
+        if (logger_) logger_->log(std::forward<Args>(args)...);
+    }
+
+    std::shared_ptr<general::Logger> logger_;
+
+    enum class NearestObsDecision {
+        Unknown = 0,
+        BypassLeft = 1,
+        BypassRight = 2,
+    };
+
+    void resetNearestObsDecision();
+    void updateNearestObsDecision(
+        double offset_s,
+        const std::vector<general::FrenetPoint>& static_obstacles_global,
+        const std::vector<general::FrenetPoint>& static_obstacles_local);
 
 
     // 生成凸空间
@@ -69,7 +77,6 @@ private:
         std::vector<double>& l_max);
 
     // 成员函数
-    void log(const std::string& message, const std::string& level = "INFO");
     bool QP_pathOptimization(const std::vector<double>& l_min,const std::vector<double>& l_max);
     
     void IncreasePathDensity(std::vector<general::FrenetPoint>& DP_or_QP,double interval);
@@ -88,11 +95,17 @@ private:
     PathPlannerConfig config_;
     std::shared_ptr<std::vector<std::vector<SLState>>> dp_sampling_grid_=nullptr;// 预计算的采样网格，加快规划速度
 
-    std::function<void(const std::string&)> log_callback_;
-    bool _enable_log = true;
     std::vector<double> _road_width_left_vec;
     std::vector<double> _road_width_right_vec;
     double _road_width_resolution = 1.0;
+
+    // 最近障碍物的绕行决策锁定：记录近5次对最近障碍物的决策结果，取多数作为最终决策。
+    // 一旦决策锁定，在越过该最近障碍物前保持不变，防止决策朝令夕改。
+    static constexpr size_t kNearestObsDecisionWindow = 8;
+    std::deque<NearestObsDecision> nearest_obs_decision_history_;
+    NearestObsDecision locked_nearest_obs_decision_ = NearestObsDecision::Unknown;
+    bool locked_nearest_obs_finalized_ = false;
+    double locked_nearest_obs_global_s_ = std::numeric_limits<double>::quiet_NaN();
 };
 
 } // namespace planner
