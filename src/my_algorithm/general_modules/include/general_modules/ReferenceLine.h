@@ -26,6 +26,7 @@ public:
     size_t size() const {
         return _ref_line.size();
     }
+    
 private:
     bool smooth_reference_line();
     bool ComputePathProfile();

@@ -127,7 +127,7 @@ double CollisionDetection::distance_to(const std::shared_ptr<Box2d> &bounding_bo
   const double ref_y2 = line_segment->end.y - bounding_box->center.y;
   double x2 =
       ref_x2 * bounding_box->cos_heading + ref_y2 * bounding_box->sin_heading;
-  double x2_tmp = x2; // Avoid confusion
+//   double x2_tmp = x2; // Avoid confusion
   double y2 =
       ref_x2 * bounding_box->sin_heading - ref_y2 * bounding_box->cos_heading;
   int gx2 = (x2 >= box_x ? 1 : (x2 <= -box_x ? -1 : 0));

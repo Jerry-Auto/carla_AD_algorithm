@@ -44,6 +44,57 @@ bool PolynomialCurve::curve_fitting(double x1, double y1, double dy1, double ddy
     return true;
 }
 
+bool PolynomialCurve::curve_fitting(double x1, double y1, double dy1, double ddy1,
+                  double x2, double dy2, double ddy2) {
+    const double dx = x2 - x1;
+    if (std::abs(dx) < 1e-8) {
+        return false;
+    }
+
+    x_offset_ = x1;
+    order_ = 4;
+    coefficients_ = Eigen::VectorXd::Zero(order_ + 1);
+
+    // p(t) = a0 + a1*t + a2*t^2 + a3*t^3 + a4*t^4
+    // t = x - x1
+    // p(0) = y1 => a0 = y1
+    // p'(0) = dy1 => a1 = dy1
+    // p''(0) = ddy1 => 2*a2 = ddy1 => a2 = ddy1 / 2
+    
+    double a0 = y1;
+    double a1 = dy1;
+    double a2 = ddy1 / 2.0;
+
+    coefficients_[0] = a0;
+    coefficients_[1] = a1;
+    coefficients_[2] = a2;
+
+    // At t = dx:
+    // p'(t) = a1 + 2*a2*t + 3*a3*t^2 + 4*a4*t^3 = dy2
+    // p''(t) = 2*a2 + 6*a3*t + 12*a4*t^2 = ddy2
+    
+    // 3*t^2*a3 + 4*t^3*a4 = dy2 - a1 - 2*a2*t
+    // 6*t*a3 + 12*t^2*a4 = ddy2 - 2*a2
+
+    double t = dx;
+    double t2 = t * t;
+    double t3 = t2 * t;
+
+    Eigen::Matrix2d A;
+    A << 3 * t2, 4 * t3,
+         6 * t, 12 * t2;
+    
+    Eigen::Vector2d b;
+    b << dy2 - a1 - 2 * a2 * t,
+         ddy2 - 2 * a2;
+    
+    Eigen::Vector2d x = A.colPivHouseholderQr().solve(b);
+    coefficients_[3] = x(0);
+    coefficients_[4] = x(1);
+
+    return true;
+}
+
 bool PolynomialCurve::try_fit_quintic_analytic(double x1, double y1, double dy1, double ddy1,
                                                double x2, double y2, double dy2, double ddy2) {
     const double dx = x2 - x1;

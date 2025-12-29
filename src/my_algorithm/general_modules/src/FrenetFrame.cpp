@@ -440,5 +440,192 @@ std::vector<FrenetPoint> FrenetFrame::project_dynamic_obstacle_to_frenet(const O
     return frenet_corners;
 }
 
+// ==================== SLT 坐标转换实现 ====================
+
+SLTPoint FrenetFrame::cartesian_to_slt(double x, double y, double t, double vx, double vy) const {
+    // 首先转换为 Frenet 坐标
+    FrenetPoint fp = cartesian_to_frenet(x, y);
+    
+    // 计算速度在 Frenet 坐标系下的投影
+    // 这里需要根据路径切线和法线方向分解速度
+    PathPoint matched_point = get_matched_point(x, y, 0.0); // 获取匹配点
+    double cos_theta = std::cos(matched_point.heading);
+    double sin_theta = std::sin(matched_point.heading);
+    
+    // 纵向速度（沿路径切线方向）
+    fp.s_dot = vx * cos_theta + vy * sin_theta;
+    // 横向速度（沿路径法线方向）
+    fp.l_dot = -vx * sin_theta + vy * cos_theta;
+    
+    // 构造 SLTPoint
+    SLTPoint slt;
+    slt.s = fp.s;
+    slt.l = fp.l;
+    slt.t = t;
+    slt.s_dot = fp.s_dot;
+    slt.l_dot = fp.l_dot;
+    slt.s_dot_dot = 0.0; // 需要加速度信息，这里暂时设为0
+    slt.l_dot_dot = 0.0;
+    
+    return slt;
+}
+
+SLTPoint FrenetFrame::cartesian_to_slt(const TrajectoryPoint& cart_point) const {
+    return cartesian_to_slt(cart_point.x, cart_point.y, cart_point.time_stamped, 
+                           cart_point.v * std::cos(cart_point.heading), 
+                           cart_point.v * std::sin(cart_point.heading));
+}
+
+std::vector<SLTPoint> FrenetFrame::cartesian_to_slt(const std::vector<TrajectoryPoint>& cart_points) const {
+    std::vector<SLTPoint> slt_points;
+    slt_points.reserve(cart_points.size());
+    for (const auto& cp : cart_points) {
+        slt_points.push_back(cartesian_to_slt(cp));
+    }
+    return slt_points;
+}
+
+TrajectoryPoint FrenetFrame::slt_to_cartesian(const SLTPoint& slt_point) const {
+    // 首先转换为 Frenet 坐标
+    FrenetPoint fp;
+    fp.s = slt_point.s;
+    fp.l = slt_point.l;
+    fp.s_dot = slt_point.s_dot;
+    fp.l_dot = slt_point.l_dot;
+    fp.s_dot_dot = slt_point.s_dot_dot;
+    fp.l_dot_dot = slt_point.l_dot_dot;
+    
+    // 转换为笛卡尔坐标
+    TrajectoryPoint tp = frenet_to_cartesian(fp);
+    tp.time_stamped = slt_point.t;
+    
+    return tp;
+}
+
+std::vector<TrajectoryPoint> FrenetFrame::slt_to_cartesian(const std::vector<SLTPoint>& slt_points) const {
+    std::vector<TrajectoryPoint> cart_points;
+    cart_points.reserve(slt_points.size());
+    for (const auto& sp : slt_points) {
+        cart_points.push_back(slt_to_cartesian(sp));
+    }
+    return cart_points;
+}
+
+// ==================== SLT 障碍物投影实现 ====================
+
+std::vector<SLTPoint> FrenetFrame::project_obstacle_to_slt(const Obstacle& obstacle, double current_time) const {
+    // 静态障碍物投影到 SLT 空间（时间固定为 current_time）
+    std::vector<FrenetPoint> frenet_points = project_obstacle_to_frenet(obstacle);
+    std::vector<SLTPoint> slt_points;
+    slt_points.reserve(frenet_points.size());
+    
+    for (const auto& fp : frenet_points) {
+        SLTPoint sp;
+        sp.s = fp.s;
+        sp.l = fp.l;
+        sp.t = current_time;
+        sp.s_dot = 0.0; // 静态障碍物速度为0
+        sp.l_dot = 0.0;
+        sp.s_dot_dot = 0.0;
+        sp.l_dot_dot = 0.0;
+        slt_points.push_back(sp);
+    }
+    return slt_points;
+}
+
+std::vector<SLTPoint> FrenetFrame::project_dynamic_obstacle_to_slt(const Obstacle& obstacle) const {
+    // 动态障碍物投影到 SLT 空间（考虑时间轨迹）
+    std::vector<FrenetPoint> frenet_points = project_dynamic_obstacle_to_frenet(obstacle);
+    std::vector<SLTPoint> slt_points;
+    slt_points.reserve(frenet_points.size());
+    
+    // 这里需要根据障碍物的预测轨迹来设置时间
+    // 暂时使用简单的线性时间假设
+    double time_step = 0.1; // 100ms 时间步长
+    for (size_t i = 0; i < frenet_points.size(); ++i) {
+        SLTPoint sp;
+        sp.s = frenet_points[i].s;
+        sp.l = frenet_points[i].l;
+        sp.t = i * time_step; // 简化假设
+        sp.s_dot = frenet_points[i].s_dot;
+        sp.l_dot = frenet_points[i].l_dot;
+        sp.s_dot_dot = frenet_points[i].s_dot_dot;
+        sp.l_dot_dot = frenet_points[i].l_dot_dot;
+        slt_points.push_back(sp);
+    }
+    return slt_points;
+}
+
+// ==================== 基于时间的 SLT 查询实现 ====================
+
+SLTPoint FrenetFrame::get_slt_at_time(double time) const {
+    if (_trajectory_points.empty()) {
+        throw std::runtime_error("No trajectory points available for time-based query");
+    }
+    
+    // 找到时间最接近的轨迹点
+    auto it = std::lower_bound(_trajectory_points.begin(), _trajectory_points.end(), time,
+        [](const TrajectoryPoint& tp, double t) { return tp.time_stamped < t; });
+    
+    if (it == _trajectory_points.begin()) {
+        return cartesian_to_slt(*it);
+    } else if (it == _trajectory_points.end()) {
+        return cartesian_to_slt(_trajectory_points.back());
+    } else {
+        // 线性插值
+        const TrajectoryPoint& p0 = *(it - 1);
+        const TrajectoryPoint& p1 = *it;
+        double t_ratio = (time - p0.time_stamped) / (p1.time_stamped - p0.time_stamped);
+        
+        TrajectoryPoint interp;
+        interp.x = p0.x + t_ratio * (p1.x - p0.x);
+        interp.y = p0.y + t_ratio * (p1.y - p0.y);
+        interp.heading = p0.heading + t_ratio * (p1.heading - p0.heading);
+        interp.v = p0.v + t_ratio * (p1.v - p0.v);
+        interp.time_stamped = time;
+        
+        return cartesian_to_slt(interp);
+    }
+}
+
+std::vector<SLTPoint> FrenetFrame::get_slt_trajectory(double start_time, double end_time, double dt) const {
+    std::vector<SLTPoint> trajectory;
+    for (double t = start_time; t <= end_time; t += dt) {
+        trajectory.push_back(get_slt_at_time(t));
+    }
+    return trajectory;
+}
+
+double FrenetFrame::get_trajectory_start_time() const {
+    if (_trajectory_points.empty()) return 0.0;
+    return _trajectory_points.front().time_stamped;
+}
+
+double FrenetFrame::get_trajectory_end_time() const {
+    if (_trajectory_points.empty()) return 0.0;
+    return _trajectory_points.back().time_stamped;
+}
+
+bool FrenetFrame::is_time_in_trajectory(double time) const {
+    if (_trajectory_points.empty()) return false;
+    return time >= get_trajectory_start_time() && time <= get_trajectory_end_time();
+}
+
+// ==================== SLT 障碍物创建实现 ====================
+
+SLTObstacle FrenetFrame::create_slt_obstacle(const Obstacle& obstacle, double current_time) const {
+    std::vector<SLTPoint> slt_points = project_obstacle_to_slt(obstacle, current_time);
+    return SLTObstacle(slt_points, 0.5); // 使用默认安全边距
+}
+
+std::vector<SLTObstacle> FrenetFrame::create_slt_obstacles(const std::vector<Obstacle>& obstacles, double current_time) const {
+    std::vector<SLTObstacle> slt_obstacles;
+    slt_obstacles.reserve(obstacles.size());
+    for (const auto& obs : obstacles) {
+        slt_obstacles.push_back(create_slt_obstacle(obs, current_time));
+    }
+    return slt_obstacles;
+}
+
 } // namespace general
 } // namespace AD_algorithm

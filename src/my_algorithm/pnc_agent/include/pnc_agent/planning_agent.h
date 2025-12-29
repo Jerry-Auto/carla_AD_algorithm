@@ -26,7 +26,7 @@
 #include "general_modules/Trajectory.h"
 #include "general_modules/ReferenceLine.h"
 #include "general_modules/planner_base.h"
-#include "planner/emplanner.h"
+#include "emplanner/emplanner.h"
 #include "general_modules/visualization_tool.h"
 
 

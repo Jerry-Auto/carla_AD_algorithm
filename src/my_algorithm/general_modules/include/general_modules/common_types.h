@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cmath>
 #include <utility>
+#include <memory>
 #include "general_modules/geometry.h"
 
 namespace AD_algorithm {
@@ -18,17 +19,6 @@ struct PathPoint {
     double kappa;
 };
 
-struct FrenetPoint {
-    FrenetPoint() : s(0.0), s_dot(0.0), s_dot_dot(0.0), l(0.0), l_dot(0.0), l_dot_dot(0.0), l_prime(0.0), l_prime_prime(0.0) {}
-    double s;
-    double s_dot;
-    double s_dot_dot;
-    double l;
-    double l_dot;
-    double l_dot_dot;
-    double l_prime;
-    double l_prime_prime;
-};
 
 struct TrajectoryPoint {
     TrajectoryPoint() : x(0.0), y(0.0), heading(0.0), kappa(0.0), v(0.0), ax(0.0), ay(0.0), a_tau(0.0), time_stamped(0.0) {}
@@ -43,6 +33,18 @@ struct TrajectoryPoint {
     double time_stamped;
 };
 
+struct FrenetPoint {
+    FrenetPoint() : s(0.0), s_dot(0.0), s_dot_dot(0.0), l(0.0), l_dot(0.0), l_dot_dot(0.0), l_prime(0.0), l_prime_prime(0.0) {}
+    double s;
+    double s_dot;
+    double s_dot_dot;
+    double l;
+    double l_dot;
+    double l_dot_dot;
+    double l_prime;
+    double l_prime_prime;
+};
+
 struct STPoint {
     STPoint() : t(0.0), s(0.0), s_dot(0.0), s_dot_dot(0.0) {}
     double t;
@@ -52,6 +54,23 @@ struct STPoint {
 
     bool operator==(const STPoint& other) const {
         return (t == other.t) && (s == other.s) && (s_dot == other.s_dot) && (s_dot_dot == other.s_dot_dot);
+    }
+};
+
+struct SLTPoint {
+    SLTPoint() : s(0.0), l(0.0), t(0.0), s_dot(0.0), l_dot(0.0), s_dot_dot(0.0), l_dot_dot(0.0) {}
+    double s;        // 纵向距离
+    double l;        // 横向距离
+    double t;        // 时间
+    double s_dot;    // 纵向速度
+    double l_dot;    // 横向速度
+    double s_dot_dot; // 纵向加速度
+    double l_dot_dot; // 横向加速度
+
+    bool operator==(const SLTPoint& other) const {
+        return (s == other.s) && (l == other.l) && (t == other.t) &&
+               (s_dot == other.s_dot) && (l_dot == other.l_dot) &&
+               (s_dot_dot == other.s_dot_dot) && (l_dot_dot == other.l_dot_dot);
     }
 };
 
@@ -121,6 +140,68 @@ struct Obstacle {
         return std::sqrt(vx * vx + vy * vy + vz * vz);
     }
 };
+
+// SL障碍物表示（用于路径规划）
+struct SLObstacle {
+    std::shared_ptr<Polygon2d> polygon;
+    double safety_margin;
+    
+    SLObstacle(const std::vector<FrenetPoint>& corners, double margin = 0.5);
+    
+    // 方便构造矩形障碍物 (s_center, l_center, length, width)
+    SLObstacle(double s, double l, double length = 5.0, double width = 2.0, double margin = 0.5);
+    
+    // 检查(s,l)点是否在障碍物区域内
+    bool contains(double s, double l, double safety_margin = 0.5) const;
+    
+    // 计算点到障碍物区域的最小距离
+    double minDistanceTo(double s, double l) const;
+};
+
+// ST障碍物表示（用于速度规划）
+struct STObstacle {
+    std::shared_ptr<Polygon2d> polygon;
+    double safety_margin;
+    
+    STObstacle(const std::vector<STPoint>& points, double margin = 0.5);
+    
+    // 方便构造矩形障碍物
+    STObstacle(double t_start, double t_end, double s_start, double s_end, double margin = 0.5);
+    
+    // 检查(t,s)点是否在障碍物区域内
+    bool contains(double t, double s, double safety_margin = 0.5) const;
+    
+    // 计算点到障碍物区域的最小距离
+    double minDistanceTo(double t, double s) const;
+};
+
+// SLT障碍物表示（用于时空联合规划）
+struct SLTObstacle {
+    std::shared_ptr<Polygon2d> polygon; // 使用3D多边形或扩展的2D表示
+    double safety_margin;
+    
+    SLTObstacle(const std::vector<SLTPoint>& points, double margin = 0.5);
+    
+    // 方便构造矩形障碍物
+    SLTObstacle(double s_min, double s_max, double l_min, double l_max, 
+                double t_min, double t_max, double margin = 0.5);
+    
+    // 检查(s,l,t)点是否在障碍物区域内
+    bool contains(double s, double l, double t, double safety_margin = 0.5) const;
+    
+    // 计算点到障碍物区域的最小距离
+    double minDistanceTo(double s, double l, double t) const;
+};
+
+// 辅助函数：将FrenetPoint集合转换为SLObstacle
+std::vector<SLObstacle> convertToSLObstacles(
+    const std::vector<std::vector<FrenetPoint>>& frenet_obstacles,
+    double safety_margin = 0.5);
+
+// 辅助函数：将ST图节点转换为STObstacle
+std::vector<STObstacle> convertToSTObstacles(
+    const std::vector<std::vector<STPoint>>& st_graph,
+    double safety_margin = 0.5);
 
 } // namespace general
 } // namespace AD_algorithm

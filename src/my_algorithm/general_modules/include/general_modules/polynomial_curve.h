@@ -25,6 +25,20 @@ public:
      */
     bool curve_fitting(double x1, double y1, double dy1, double ddy1,
                       double x2, double y2, double dy2, double ddy2);
+
+    /**
+     * @brief 拟合四次多项式（用于巡航，不指定终点位置）
+     * @param x1 起点x
+     * @param y1 起点y
+     * @param dy1 起点一阶导
+     * @param ddy1 起点二阶导
+     * @param x2 终点x
+     * @param dy2 终点一阶导
+     * @param ddy2 终点二阶导
+     * @return 是否拟合成功
+     */
+    bool curve_fitting(double x1, double y1, double dy1, double ddy1,
+                      double x2, double dy2, double ddy2);
     
     /**
      * @brief 计算多项式在指定x处的值或导数值

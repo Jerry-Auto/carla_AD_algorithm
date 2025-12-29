@@ -1,34 +1,19 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>pnc_agent</name>
+  <name>lattice</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
+  <description>lattice Planner Package</description>
   <maintainer email="1763287396@qq.com">root</maintainer>
   <license>TODO: License declaration</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>rclcpp</depend>
-  <depend>pnc_msgs</depend>
-  <depend>carla_msgs</depend>
-  <depend>derived_object_msgs</depend>
-  <depend>nav_msgs</depend>
   <depend>std_msgs</depend>
-  <depend>visualization_msgs</depend>
-  <depend>sensor_msgs</depend>
-  <depend>tf2</depend>
-  <depend>tf2_geometry_msgs</depend>
+  <depend>Eigen3</depend>
   <depend>general_modules</depend>
-  <depend>pidlqr</depend>
-  <depend>mpc</depend>
-  <depend>emplanner</depend>
-  <depend>lattice</depend>
-  <depend>carla_waypoint_types</depend>
 
-  <exec_depend>libosqp-dev</exec_depend>
-  <exec_depend>libosqpeigen-dev</exec_depend>
-  
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
 

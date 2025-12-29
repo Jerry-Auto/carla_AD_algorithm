@@ -41,6 +41,7 @@ add_library(${PROJECT_NAME} STATIC
   src/csv_logger.cpp
   src/polynomial_curve.cpp
   src/collision_detection.cpp
+  src/common_types.cpp
 )
 
 # 设置头文件路径（对库本身）

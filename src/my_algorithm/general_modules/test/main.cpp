@@ -84,7 +84,7 @@ std::vector<PathPoint> generateRefPath() {
 
 std::vector<TrajectoryPoint> generateFinalTraj() {
     std::vector<TrajectoryPoint> traj;
-    double t_offset = rclcpp::Clock().now().seconds(); // 可加动态偏移（可选）
+    // double t_offset = rclcpp::Clock().now().seconds(); // 可加动态偏移（可选）
     for (double t = 0.0; t <= 5.0; t += 0.1) {
         TrajectoryPoint tp;
         tp.x = t * 2.0;

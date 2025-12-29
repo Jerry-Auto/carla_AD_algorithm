@@ -22,10 +22,12 @@ find_package(visualization_msgs REQUIRED)
 find_package(pnc_msgs REQUIRED)
 find_package(carla_waypoint_types REQUIRED)
 find_package(general_modules REQUIRED)
-find_package(controller REQUIRED)
-find_package(planner REQUIRED)
+find_package(emplanner REQUIRED)
+find_package(lattice REQUIRED)
 find_package(OsqpEigen REQUIRED)
 find_package(ament_index_cpp REQUIRED)
+find_package(pidlqr REQUIRED)
+find_package(mpc REQUIRED)
 
 # 添加规划节点
 add_executable(planning_agent src/planning_agent.cpp)
@@ -46,7 +48,8 @@ ament_target_dependencies(planning_agent
   carla_waypoint_types
   visualization_msgs
   general_modules
-  planner
+  emplanner
+  lattice
 )
 target_link_libraries(planning_agent OsqpEigen::OsqpEigen)
 
@@ -66,7 +69,8 @@ ament_target_dependencies(control_agent
   tf2_geometry_msgs
   pnc_msgs
   general_modules
-  controller
+  pidlqr
+  mpc
   ament_index_cpp
 )
 
@@ -82,7 +86,6 @@ endif()
 
 # 导出依赖
 ament_export_dependencies(
-  # 列出所有find_package找到的包
   rclcpp
   carla_msgs
   derived_object_msgs
@@ -95,9 +98,11 @@ ament_export_dependencies(
   carla_waypoint_types
   visualization_msgs
   general_modules
-  controller
-  planner
+  emplanner
+  lattice
   OsqpEigen
+  pidlqr
+  mpc
 )
 
 ament_package()

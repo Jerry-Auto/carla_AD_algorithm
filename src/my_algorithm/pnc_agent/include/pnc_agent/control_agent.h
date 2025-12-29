@@ -28,8 +28,8 @@
 #include "general_modules/Trajectory.h"
 #include "general_modules/ReferenceLine.h"
 #include "general_modules/controller_base.h"
-#include "controller/pid_lqr_controller.h"
-#include "controller/mpc_controller.h"
+#include "pidlqr/pid_lqr_controller.h"
+#include "mpc/mpc_controller.h"
 
 namespace AD_algorithm {
 namespace agent {

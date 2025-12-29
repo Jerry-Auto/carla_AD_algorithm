@@ -377,7 +377,7 @@ std::shared_ptr<AD_algorithm::planner::PlannerBase> PlanningAgent::createPlanner
         return std::make_shared<EMPlanner>();
     }
     // Future: Add other planners here
-    // if (type == "lattice") return std::make_shared<LatticePlanner>();
+    // if (type == "lattice") return std::make_shared<latticePlanner>();
     
     RCLCPP_ERROR(this->get_logger(), "未知规划器类型: %s, 默认使用 EMPlanner", type.c_str());
     return std::make_shared<EMPlanner>();

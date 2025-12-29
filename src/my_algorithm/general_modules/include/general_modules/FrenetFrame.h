@@ -51,7 +51,21 @@ public:
     TrajectoryPoint frenet_to_cartesian(const FrenetPoint& frenet_point) const;
     std::vector<TrajectoryPoint> frenet_to_cartesian(const std::vector<FrenetPoint>& frenet_points) const;
 
-    // 障碍物投影
+    // SLT 坐标转换（包含时间维度）
+    SLTPoint cartesian_to_slt(double x, double y, double t, double vx = 0.0, double vy = 0.0) const;
+    SLTPoint cartesian_to_slt(const TrajectoryPoint& cart_point) const;
+    std::vector<SLTPoint> cartesian_to_slt(const std::vector<TrajectoryPoint>& cart_points) const;
+    
+    TrajectoryPoint slt_to_cartesian(const SLTPoint& slt_point) const;
+    std::vector<TrajectoryPoint> slt_to_cartesian(const std::vector<SLTPoint>& slt_points) const;
+
+    // 障碍物投影到 SLT 空间
+    std::vector<SLTPoint> project_obstacle_to_slt(const Obstacle& obstacle, double current_time = 0.0) const;
+    std::vector<SLTPoint> project_dynamic_obstacle_to_slt(const Obstacle& obstacle) const;
+    
+    // 创建 SLT 障碍物
+    SLTObstacle create_slt_obstacle(const Obstacle& obstacle, double current_time = 0.0) const;
+    std::vector<SLTObstacle> create_slt_obstacles(const std::vector<Obstacle>& obstacles, double current_time = 0.0) const;
     std::vector<FrenetPoint> project_obstacle_to_frenet(const Obstacle& obstacle) const;
     std::vector<FrenetPoint> project_dynamic_obstacle_to_frenet(const Obstacle& obstacle) const;
 
@@ -66,6 +80,15 @@ public:
     std::pair<TrajectoryPoint,double> get_matched_trj_point(double time_stamp)const;
 
     std::pair<TrajectoryPoint,double> get_matched_trj_point(double x, double y, double heading)const;
+
+    // 基于时间的 SLT 匹配和查询
+    SLTPoint get_slt_at_time(double time) const;
+    std::vector<SLTPoint> get_slt_trajectory(double start_time, double end_time, double dt = 0.1) const;
+    
+    // 时间范围查询
+    double get_trajectory_start_time() const;
+    double get_trajectory_end_time() const;
+    bool is_time_in_trajectory(double time) const;
 
     struct ProjectionResult {
         double s;
@@ -86,6 +109,7 @@ public:
     const TrajectoryPoint& traj_point(size_t index) const {
         return _trajectory_points[index];
     }
+    
     size_t size() const {
         return ref_line_.size();
     }
@@ -104,5 +128,6 @@ private:
     size_t find_nearest_index(double x, double y) const ;
     ProjectionResult project_to_path(double x, double y) const ;
 };
+
 } // namespace general
 } // namespace AD_algorithm

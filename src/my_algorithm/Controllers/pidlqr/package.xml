@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>pidlqr</name>
+  <version>0.0.0</version>
+  <description>PID + LQR controller package</description>
+  <maintainer email="1763287396@qq.com">you</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>rclcpp</depend>
+  <depend>std_msgs</depend>
+  <depend>Eigen3</depend>
+  <depend>general_modules</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
