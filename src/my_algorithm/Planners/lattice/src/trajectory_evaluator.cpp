@@ -11,6 +11,7 @@ TrajectoryEvaluator::TrajectoryEvaluator(const PlannerParams& params) {
   weight_lt_offset_ = params.weights.weight_lt_offset;
   weight_lt_acc_ = params.weights.weight_lt_acc;
   weight_st_acc_ = params.weights.weight_st_acc;
+  weight_obstacle_distance_ = params.weights.weight_obstacle_distance;
 }
 
 // 评估纵向代价：速度偏差 + jerk 舒适度 + 加速度惩罚
@@ -91,6 +92,7 @@ double TrajectoryEvaluator::EvaluatePair(const Trajectory1DGenerator::LonCandida
     lat_comfort_sum += comfort;
     ++cnt;
   }
+
   double lat_comfort = (cnt > 0) ? (lat_comfort_sum / cnt) : 0.0;
 
   return lon_cost + lat_cost + weight_lt_acc_ * lat_comfort;

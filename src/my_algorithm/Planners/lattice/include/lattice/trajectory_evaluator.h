@@ -80,6 +80,8 @@ class TrajectoryEvaluator {
   double weight_lt_offset_;
   double weight_lt_acc_;
   double weight_st_acc_;
+  // 障碍距离代价权重
+  double weight_obstacle_distance_;
 };
 
 } // namespace planner

@@ -6,17 +6,11 @@
 #include <iomanip>
 #include <random>
 #include <cstdlib>
-#if __has_include(<Python.h>)
 #include "general_modules/matplotlibcpp.h"
-namespace plt = matplotlibcpp;
-#define HAVE_MATPLOTLIBCPP 1
-#else
-#define HAVE_MATPLOTLIBCPP 0
-#endif
-
 #include "lattice/lattice_planner.h"
 #include "general_modules/FrenetFrame.h"
 
+namespace plt = matplotlibcpp;
 using namespace AD_algorithm;
 using namespace AD_algorithm::planner;
 using namespace AD_algorithm::general;
@@ -111,91 +105,86 @@ static std::vector<PathPoint> generate_path(){
     return reference_path;
 }
 
-// 可视化：显示参考线、障碍物、自车和规划轨迹
-static void visualize(
-    const std::vector<PathPoint>& reference_path,
-    const std::vector<Obstacle>& obstacles,
-    const std::vector<TrajectoryPoint>& trajectory,
-    const VehicleState& ego)
+void visualize(
+    const std::vector<general::PathPoint>& reference_path,
+    const std::vector<general::Obstacle>& obstacles,
+    const std::vector<general::TrajectoryPoint>& trajectory,
+    const general::VehicleState& ego,
+    const std::vector<std::vector<general::TrajectoryPoint>>& lateral_candidates = {})
 {
-#if !HAVE_MATPLOTLIBCPP
-    // matplotlibcpp / Python 开发头不可用时为 no-op
-    (void)reference_path; (void)obstacles; (void)trajectory; (void)ego;
-    return;
-#else
-    static bool vis_ok = true;
-    if (!vis_ok) return;
-    try {
-        plt::figure(1);
-        plt::clf();
+    plt::figure(1);
+    plt::clf();
 
-        // 1. 绘制参考线
-        std::vector<double> rx, ry;
-        for (const auto& p : reference_path) {
-            rx.push_back(p.x);
-            ry.push_back(p.y);
-        }
-        plt::plot(rx, ry, {{"color", "blue"}, {"linewidth", "2"}});
-        if (!rx.empty()) plt::text(rx.front(), ry.front(), "Reference Start");
-
-        // 2. 绘制障碍物
-        for (const auto& obs : obstacles) {
-            double half_l = obs.length / 2.0;
-            double half_w = obs.width / 2.0;
-
-            std::vector<double> ox = {
-                obs.x - half_l, obs.x + half_l,
-                obs.x + half_l, obs.x - half_l,
-                obs.x - half_l
-            };
-            std::vector<double> oy = {
-                obs.y - half_w, obs.y - half_w,
-                obs.y + half_w, obs.y + half_w,
-                obs.y - half_w
-            };
-
-            plt::plot(ox, oy, "r");
-            plt::text(obs.x, obs.y, "Obs " + std::to_string(obs.id));
-        }
-
-        // 3. 绘制规划轨迹
-        std::vector<double> tx, ty;
-        for (const auto& p : trajectory) {
-            tx.push_back(p.x);
-            ty.push_back(p.y);
-        }
-        if (!tx.empty()) {
-            plt::plot(tx, ty, {{"color", "green"}, {"linewidth", "2"}});
-            plt::text(tx.front(), ty.front(), "Trajectory Start");
-        }
-
-        // 4. 绘制自车位置
-        std::vector<double> ex = {ego.x};
-        std::vector<double> ey = {ego.y};
-        plt::scatter(ex, ey, 80.0, {{"c", "yellow"}, {"edgecolors", "black"}});
-        plt::text(ego.x, ego.y, "Ego");
-
-        // 图形设置
-        plt::xlabel("X (m)");
-        plt::ylabel("Y (m)");
-        plt::title("Lattice Planner Visualization");
-        plt::axis("equal");
-        plt::grid(true);
-        plt::xlim(ego.x - 30.0, ego.x + 30.0);
-        plt::ylim(ego.y - 30.0, ego.y + 30.0);
-
-        plt::pause(0.001);
-    } catch (const std::exception &e) {
-        std::cerr << "[visualize] plotting error: " << e.what() << "\n";
-        vis_ok = false; // disable further attempts
-    } catch (...) {
-        std::cerr << "[visualize] plotting error: unknown exception\n";
-        vis_ok = false;
+    // 1. 绘制参考线
+    std::vector<double> rx, ry;
+    for (const auto& p : reference_path) {
+        rx.push_back(p.x);
+        ry.push_back(p.y);
     }
-#endif
+    plt::plot(rx, ry, {{"color", "blue"}, {"linewidth", "2"}});
+    plt::text(rx.front(), ry.front(), "Reference Start");
+    
+    // 2. 绘制障碍物
+    for (const auto& obs : obstacles) {
+        double half_l = obs.length / 2.0;
+        double half_w = obs.width / 2.0;
+
+        std::vector<double> ox = {
+            obs.x - half_l, obs.x + half_l,
+            obs.x + half_l, obs.x - half_l,
+            obs.x - half_l
+        };
+        std::vector<double> oy = {
+            obs.y - half_w, obs.y - half_w,
+            obs.y + half_w, obs.y + half_w,
+            obs.y - half_w
+        };
+
+        plt::plot(ox, oy, "r");
+        plt::text(obs.x, obs.y, "Obs " + std::to_string(obs.id));
+    }
+
+    // 2b. 绘制横向候选（若有）
+    for (const auto& cand : lateral_candidates) {
+        if (cand.empty()) continue;
+        std::vector<double> cx, cy;
+        cx.reserve(cand.size()); cy.reserve(cand.size());
+        for (const auto& p : cand) { cx.push_back(p.x); cy.push_back(p.y); }
+        // 画成浅灰色以便与最终轨迹区分
+        plt::plot(cx, cy, {{"color", "lightgray"}, {"linewidth", "0.8"}});
+    }
+
+    // 3. 绘制规划轨迹
+    std::vector<double> tx, ty;
+    for (const auto& p : trajectory) {
+        tx.push_back(p.x);
+        ty.push_back(p.y);
+    }
+    plt::plot(tx, ty, {{"color", "green"}, {"linewidth", "2"}});
+    plt::text(tx.front(), ty.front(), "Trajectory Start");
+
+    // 4. 绘制自车位置
+    std::vector<double> ex = {ego.x};
+    std::vector<double> ey = {ego.y};
+
+    plt::scatter(ex, ey, 80.0, {{"c", "yellow"}, {"edgecolors", "black"}});
+
+    plt::text(ego.x, ego.y, "Ego");
+
+    // 图形设置
+    plt::xlabel("X (m)");
+    plt::ylabel("Y (m)");
+    plt::title("EMPlanner Visualization");
+    plt::axis("equal");
+    plt::grid(true);
+    plt::xlim(ego.x - 30.0, ego.x + 100.0);
+    plt::ylim(ego.y - 20.0, ego.y + 20.0);
+
+    plt::pause(0.001);
 }
 
 int main() {
+    plt::backend("Qt5Agg");
     std::cout << "Lattice Planner test copied from EMPlanner scenario" << std::endl;
 
     // 1. 创建规划器
@@ -206,9 +195,9 @@ int main() {
     params.sampling.sample_max_time = 8.0;
     params.sampling.sample_min_time = 3.0;
     params.sampling.sample_time_step = 0.5;
-    params.sampling.sample_lat_width = 2.0;
-    params.sampling.sample_width_length = 0.5;
-    params.sampling.sample_space_resolution = 0.3;
+    params.sampling.sample_lat_width = 5.0;
+    params.sampling.sample_width_length = 1.0;
+    params.sampling.sample_space_resolution = 0.5;
     params.cruise_speed = 4.0;
     params.weights.weight_st_object = 1.0;
     params.weights.weight_st_jerk = 1.0;
@@ -263,13 +252,14 @@ int main() {
         std::cout << "\n✓ Initial planning succeeded!" << std::endl;
         std::cout << "  Planning time: " << duration.count() << " ms" << std::endl;
         std::cout << "  Trajectory points: " << trajectory.size() << std::endl;
-#if HAVE_MATPLOTLIBCPP
-        if (std::getenv("PLOT")) {
+        try {
+            // Try to fetch cached lateral candidates from planner and plot them
+            const auto& lateral_candidates = planner.GetAllLateralCandidatesCartesian();
+            visualize(reference_path, obstacles, trajectory, *ego, lateral_candidates);
+        } catch (const std::exception& e) {
+            std::cerr << "Warning: lateral candidate visualization failed: " << e.what() << std::endl;
             visualize(reference_path, obstacles, trajectory, *ego);
-        } else {
-            std::cout << "[visualize] plotting disabled (set PLOT=1 to enable)" << std::endl;
         }
-#endif
     } else {
         std::cout << "Initial planning failed." << std::endl;
         return 1;
@@ -323,10 +313,15 @@ int main() {
             break;
         }
 
-        if (cycle % 10 == 0) {
+        if (cycle % 1 == 0) {
             std::cout << "Cycle " << cycle << ": trajectory size=" << trajectory.size() << std::endl;
-            // Visualization is intentionally only run once after initial planning to avoid
-            // runtime-python import errors on some systems. Enable manually if needed.
+            try {
+                const auto& lateral_candidates = planner.GetAllLateralCandidatesCartesian();
+                visualize(reference_path, obstacles, trajectory, *ego, lateral_candidates);
+            } catch (const std::exception& e) {
+                std::cerr << "Warning: lateral candidate visualization failed in cycle " << cycle << ": " << e.what() << std::endl;
+                visualize(reference_path, obstacles, trajectory, *ego);
+            }
         }
     }
 

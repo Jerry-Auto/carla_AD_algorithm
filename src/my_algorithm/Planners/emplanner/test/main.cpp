@@ -85,7 +85,6 @@ void visualize(
     plt::ylim(ego.y - 30.0, ego.y + 30.0);
 
     plt::pause(0.001);
-    plt::plot();
 }
 std::vector<general::PathPoint> generate_path(){
     std::vector<general::PathPoint> reference_path;

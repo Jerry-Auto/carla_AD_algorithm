@@ -149,6 +149,19 @@ class latticePlanner : public PlannerBase {
    */
   void GetCartesianPaths(std::vector<latticeFrenetPath>& frenet_paths, 
                          const std::vector<PathPoint>& ref_path);
+
+  /**
+   * @brief Generate ALL lateral candidate paths (Frenet -> Cartesian).
+   *
+   * This returns for a given lateral initial point `init` and time horizon `T` all
+   * lateral candidates converted to Cartesian coordinates. Each candidate is a
+   * vector of `general::TrajectoryPoint`. Time is ignored (set to 0) as requested.
+   */
+  /**
+   * @brief Parameterless overload: return the last generated lateral candidates.
+   * If not available, try to regenerate using stored last init/T/s_offset.
+   */
+  std::vector<std::vector<general::TrajectoryPoint>> GetAllLateralCandidatesCartesian();
   /**
    * @brief Get the Valid Paths object 过滤不合格的路径（比如有障碍物，速度加速度曲率不合格）
    * 
@@ -206,6 +219,12 @@ class latticePlanner : public PlannerBase {
   std::vector<general::PathPoint> global_reference_line_;  // 为 API 兼容性保留的参考路径副本
   // 缓存从全局参考线路径构建的 FrenetFrame（避免重复构造以提升性能）
   std::shared_ptr<general::FrenetFrame> global_frenet_frame_;
+
+  // 存储最近一次生成的横向候选（Frenet 多项式）以及相关偏移
+  std::vector<Trajectory1DGenerator::LatCandidate> lat_candidates_;
+  double last_lat_T_ = 0.0;
+  double last_lat_s_offset_ = 0.0;
+
   bool log_enable_ = false;
   bool is_following_ = false;
 };

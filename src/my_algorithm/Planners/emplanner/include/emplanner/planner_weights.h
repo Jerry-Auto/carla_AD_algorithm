@@ -41,6 +41,7 @@ struct WeightCoefficients {
     double forward_predict_time=0.1;   
     double safety_margin = 3.0;      // 计算障碍物代价的安全边界，边界内代价较高
     double obs_safety_margin = 0.5;      // 状态是否可行的安全边界，边界内视为不可行
+    double longitudinal_buffer = 5.0; // 障碍物沿 s 方向考虑的缓冲区长度（米）
 };
 
 

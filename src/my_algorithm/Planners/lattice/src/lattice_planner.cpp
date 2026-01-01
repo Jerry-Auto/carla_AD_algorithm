@@ -67,9 +67,8 @@ bool latticePlanner::isTrajectoryValid(
     const std::vector<general::TrajectoryPoint>& trajectory,
     std::string* reason,
     size_t min_points) {
-  if (!collision_detection_ptr_) return false;
-  // 委托给 TrajectoryManager 进行约束校验
-  return traj_manager_.isTrajectoryValid(trajectory, reason, min_points) && !collision_detection_ptr_->InCollision(trajectory);
+  // 委托给 TrajectoryManager 进行约束校验，数值上的检查
+  return traj_manager_.isTrajectoryValid(trajectory, reason, min_points) ;
 }
 
 void latticePlanner::set_log_enable(bool enable) {
@@ -98,7 +97,24 @@ double latticePlanner::GetStObjectCost(const latticeFrenetPath& frenet_path,
   if (!frenet_path.frenet_points.empty()) {
       dist_cost = 1.0 / (1.0 + frenet_path.frenet_points.back().s);
   }
-  object_cost = (speed_cost + 10 * dist_cost) / 11;
+
+  // 新增：基于障碍最小距离的代价项（time-aligned）
+  double obstacle_dist_cost = 0.0;
+  double count = 0.0;
+  if (collision_detection_ptr_ && !collision_detection_ptr_->predicted_polygons_.empty()) {
+    for (const auto& pt : frenet_path.frenet_points) {
+      // 若 frenet_point 中未填充 Cartesian 坐标，需要先转换（调用者应在外部保证）
+      double dist = collision_detection_ptr_->MinDistanceToObstaclesAtTime(pt.x, pt.y, pt.t);
+      // 使用 1/(1+dist) 服从递减且有限界
+      obstacle_dist_cost += 1.0 / (1.0 + dist);
+      count += 1.0;
+    }
+    if (count > 0.0) obstacle_dist_cost /= count;
+  }
+
+  // 合成最终 object cost：保留原有速度/终点距离代价，同时叠加障碍距离代价（按 planner 权重）
+  double weight_obs = planner_params_.weights.weight_obstacle_distance;
+  object_cost = (speed_cost + 10 * dist_cost) / 11 + weight_obs * obstacle_dist_cost;
 
   return object_cost;
 }
@@ -293,6 +309,44 @@ void latticePlanner::GetCartesianPaths(std::vector<latticeFrenetPath>& frenet_pa
   }
 }
 
+std::vector<std::vector<AD_algorithm::general::TrajectoryPoint>> latticePlanner::GetAllLateralCandidatesCartesian() {
+  // If we already computed and cached cartesian lateral candidates, return them
+  std::vector<std::vector<AD_algorithm::general::TrajectoryPoint>> lateral_candidates_cartesian;
+  if (lat_candidates_.empty()) {
+    // Nothing to compute
+    return lateral_candidates_cartesian;
+  }
+  // Prepare FrenetFrame
+  AD_algorithm::general::FrenetFrame frenet_frame = (global_frenet_frame_ ? *global_frenet_frame_ : AD_algorithm::general::FrenetFrame(AD_algorithm::general::ReferenceLine(global_reference_line_)));
+
+  for (const auto& lat : lat_candidates_) {
+    double max_s = lat.param_s;
+    if (max_s <= 1e-9) continue;
+
+    double ds = std::max(planner_params_.sampling.sample_space_resolution, planner_params_.cruise_speed * planner_params_.sampling.sample_time_step);
+
+    std::vector<AD_algorithm::general::FrenetPoint> lateral_profile;
+    for (double s = 0.0; s <= max_s + 1e-9; s += ds) {
+      AD_algorithm::general::FrenetPoint fp;
+      fp.t = 0.0;
+      fp.s = s + last_lat_s_offset_;
+      fp.l = lat.curve->value_evaluation(s, 0);
+      fp.l_prime = lat.curve->value_evaluation(s, 1);
+      fp.l_prime_prime = lat.curve->value_evaluation(s, 2);
+      lateral_profile.push_back(fp);
+    }
+
+    try {
+      auto traj = frenet_frame.frenet_to_cartesian(lateral_profile);
+      lateral_candidates_cartesian.push_back(traj);
+    } catch (const std::exception& e) {
+      log("DEBUG", "GetAllLateralCandidatesCartesian: conversion error: ", e.what());
+    }
+  }
+
+  return lateral_candidates_cartesian;
+}
+
 std::priority_queue<latticeFrenetPath, std::vector<latticeFrenetPath>, Cmp> 
     latticePlanner::GetValidPaths(std::vector<latticeFrenetPath>& frenet_paths, 
                                   const latticeFrenetPoint& leader_frenet_point, 
@@ -395,23 +449,25 @@ std::vector<AD_algorithm::general::TrajectoryPoint> latticePlanner::plan(
   FilterLonCandidates(init, lon_candidates);
 
   // 对每个 T 采样横向候选（使用第一个纵向候选的 T 作为代表）
-  std::vector<Trajectory1DGenerator::LatCandidate> lat_candidates;
+  lat_candidates_.clear();
   if (!lon_candidates.empty()) {
     double T = lon_candidates.front().T;
-    lat_candidates = traj1d_generator_->GenerateLateralCandidates(init, T);
+    lat_candidates_ = traj1d_generator_->GenerateLateralCandidates(init, T);
+    last_lat_T_ = T;
+    last_lat_s_offset_ = s0;
   }
 
   // 用成员方法进行横向初筛（传入已构造的 frame 由内部使用）
   // 这里传入 s0 以在需要时恢复绝对 s
-  FilterLatCandidates(lat_candidates, s0);
+  FilterLatCandidates(lat_candidates_, s0);
 
-  if (lon_candidates.empty() || lat_candidates.empty()) {
+  if (lon_candidates.empty() || lat_candidates_.empty()) {
     log("No candidates generated");
     return {};
   }
 
   // 对纵横候选对进行排序
-  auto q = traj_evaluator_->RankPairs(lon_candidates, lat_candidates, reference_speed);
+  auto q = traj_evaluator_->RankPairs(lon_candidates, lat_candidates_, reference_speed);
 
   // 逐个迭代并选择第一个通过约束的轨迹
   while (!q.empty()) {
@@ -421,10 +477,6 @@ std::vector<AD_algorithm::general::TrajectoryPoint> latticePlanner::plan(
     // 把 traj 的时间戳从相对时间转换为以 planning start time 为基准的绝对时间
     for (auto &p : traj) p.time_stamped += time_base;
 
-    if (collision_detection_ptr_->InCollision(traj)) {
-      log("Trajectory rejected by collision");
-      continue;
-    }
     std::string reason;
     if (!traj_manager_.isTrajectoryValid(traj, &reason)) {
       log("Trajectory rejected by constraint: ", reason);

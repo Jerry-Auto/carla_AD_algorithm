@@ -9,10 +9,10 @@ struct SamplingParams {
   double sample_max_time = 3.0;
   double sample_min_time = 1.0;
   double sample_time_step = 1.0;
-  double sample_lat_width = 1.0;
-  double sample_width_length = 0.5;
+  double sample_lat_width = 8.0;  // 横向采样范围（单位 m），左右对称
+  double sample_width_length = 0.5;  // 横向采样间隔（单位 m）
+  double sample_space_resolution = 0.5; // 计算代价时横向空间(s)采样步长，单位 m（默认 0.1）
   double sample_dt = 0.02; // 用于轨迹采样与校验的时间步长（新增）
-  double sample_space_resolution = 0.1; // 横向空间(s)采样步长，单位 m（默认 0.1）
   size_t beam_size = 5; // 在 RankPairs 中对每个 lon 考虑的 top-K lat（beam 大小）
 };
 
@@ -23,6 +23,7 @@ struct WeightParams {
   double weight_lt_offset = 1.0;
   double weight_lt_acc = 1.0;
   double weight_st_acc = 0.5; // 对纵向加速度的额外惩罚
+  double weight_obstacle_distance = 1.0; // 障碍距离惩罚权重（越大越偏向远离障碍）
 };
 
 // 物理限制与约束

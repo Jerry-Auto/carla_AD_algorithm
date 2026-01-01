@@ -670,10 +670,6 @@ void PathPlanner::generateConvexSpace(
         int center_index = findClosestIndex(s_center);
         if (center_index == -1) continue;
         
-        log("DEBUG", "Obs at s_center=", s_center,
-            ", l_center=", l_center,
-            ", center_idx=", center_index,
-            ", dp_l=", dp_path_[center_index].l);
 
         // 对“最近障碍物”使用锁定决策（近5次多数投票后锁定），其他障碍物仍按当前DP相对位置决定
         NearestObsDecision decision = NearestObsDecision::Unknown;
@@ -683,9 +679,8 @@ void PathPlanner::generateConvexSpace(
             decision = (dp_path_[center_index].l > l_center) ? NearestObsDecision::BypassLeft : NearestObsDecision::BypassRight;
         }
 
-        double longitudinal_buffer = 10.0; 
-        int start_index = findClosestIndex(s_min - longitudinal_buffer);
-        int end_index = findClosestIndex(s_max + longitudinal_buffer);
+        int start_index = findClosestIndex(s_min - weights_.longitudinal_buffer);
+        int end_index = findClosestIndex(s_max + weights_.longitudinal_buffer);
         
         if (start_index == -1 || end_index == -1) continue;
 

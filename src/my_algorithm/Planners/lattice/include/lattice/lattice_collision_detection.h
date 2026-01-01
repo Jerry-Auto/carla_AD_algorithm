@@ -77,6 +77,38 @@ class latticeCollisionDetection {
   std::vector<Obstacle> static_obstacle_list_;    // 静态障碍物
   std::vector<Obstacle> dynamic_obstacle_list_;   // 动态障碍物
   std::vector<PathPoint> ref_path_;               // 参考轨迹（Cartesian下）
+
+  // Time-indexed predicted obstacle polygons (per planning cycle)
+  // predicted_polygons_[i] 是在 time = i * time_resolution_ 时刻的障碍多边形列表
+  std::vector<std::vector<std::shared_ptr<AD_algorithm::general::Polygon2d>>> predicted_polygons_;
+
+  // configurable timing parameters for prediction sampling
+  double time_horizon_ = 5.0;        // seconds
+  double time_resolution_ = 0.5;     // seconds
+
+  // ego vehicle geometry (可在运行时设置)
+  double ego_length_ = 4.5;
+  double ego_width_ = 2.0;
+  double ego_back_to_center_ = 1.0;
+
+  // Build predicted polygons for each time step (call during Update)
+  void BuildPredictedEnvironment();
+
+  // set time horizon / resolution
+  void setTimeHorizon(double h) { time_horizon_ = h; }
+  void setTimeResolution(double r) { time_resolution_ = r; }
+
+  // set ego size
+  void setEgoSize(double length, double width, double back_to_center) {
+    ego_length_ = length; ego_width_ = width; ego_back_to_center_ = back_to_center;
+  }
+
+  // Query helpers
+  // 返回在指定时间点 t 时，点(x,y) 到最近障碍的距离（若超出时间范围则取最近端点）
+  double MinDistanceToObstaclesAtTime(double x, double y, double t) const;
+
+  // Check overlap between ego box at (x,y,heading) and predicted obstacles at time t
+  bool HasOverlapWithPredicted(double x, double y, double heading, double t) const;
 };
 
 
