@@ -85,6 +85,7 @@ void visualize(
     plt::ylim(ego.y - 30.0, ego.y + 30.0);
 
     plt::pause(0.001);
+    plt::plot();
 }
 std::vector<general::PathPoint> generate_path(){
     std::vector<general::PathPoint> reference_path;
@@ -238,22 +239,23 @@ void test_planner() {
         obs.length = 4.5;
         obs.width = 2.0;
         obs.height = 1.6;
+        obs.heading = 0.0;
         obstacles.push_back(obs);
     }
 
     // // 场景2：切入车辆（从右侧汇入）
-    // {
-    //     general::Obstacle cut_in_car;
-    //     cut_in_car.id = 102;
-    //     cut_in_car.x = 55.0; // 在自车前方
-    //     cut_in_car.y = -4.0; // 在右侧车道/路肩
-    //     cut_in_car.vx = 5.0; // 纵向速度
-    //     cut_in_car.vy = 1.0; // 向左切入
-    //     cut_in_car.length = 4.5;
-    //     cut_in_car.width = 1.8;
-    //     cut_in_car.height = 1.4;
-    //     obstacles.push_back(cut_in_car);
-    // }
+    {
+        general::Obstacle cut_in_car;
+        cut_in_car.id = 102;
+        cut_in_car.x = 55.0; // 在自车前方
+        cut_in_car.y = -4.0; // 在右侧车道/路肩
+        cut_in_car.vx = 5.0; // 纵向速度
+        cut_in_car.vy = 1.0; // 向左切入
+        cut_in_car.length = 4.5;
+        cut_in_car.width = 1.8;
+        cut_in_car.height = 1.4;
+        obstacles.push_back(cut_in_car);
+    }
 
     // 场景3：路中间静态障碍物（强制变道）
     {
@@ -315,6 +317,8 @@ void test_planner() {
     auto trajectory = emplanner->plan(ego_state, obstacles, reference_speed, current_time);
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    visualize(reference_path, obstacles, trajectory, *ego_state);
+
 
     if (!trajectory.empty()) {
         std::cout << "\n✓ Initial planning succeeded!" << std::endl;
@@ -431,10 +435,10 @@ void test_planner() {
                 break;
             }
 
-            if (cycle % 1== 0) {
+            if (cycle % 5== 0) {
                 if (!trajectory.empty()) {
                     // std::cout << "  [VISUALIZE] Showing plot at cycle " << cycle << std::endl;
-                    // visualize(reference_path, obstacles, trajectory, *ego_state);
+                    visualize(reference_path, obstacles, trajectory, *ego_state);
                 }
             }
         }

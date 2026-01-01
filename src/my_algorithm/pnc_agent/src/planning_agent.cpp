@@ -24,9 +24,9 @@ PlanningAgent::PlanningAgent() : Node("planning_agent")
 {
     this->declare_parameter<std::string>("role_name", "ego_vehicle");
     this->get_parameter("role_name", _role_name);
-    this->declare_parameter<std::string>("planner_type", "emplanner");
+    this->declare_parameter<std::string>("planner_type", "emplanner");// lattice   emplanner
     this->get_parameter("planner_type", _planner_type);
-    this->declare_parameter<bool>("enable_planner_log", false);
+    this->declare_parameter<bool>("enable_planner_log", true);
     this->get_parameter("enable_planner_log", _enable_planner_log);
 
     this->declare_parameter<bool>("enable_file_log", false);
@@ -160,7 +160,6 @@ void PlanningAgent::road_boundaries_cb(const std_msgs::msg::Float32MultiArray::S
     // }
 
     rclcpp::Logger logger = this->get_logger();
-
 
     RCLCPP_INFO(logger, "收到道路边界消息，采样点数: %zu，当前边界(左,右):( %.2f , %.2f m)",
                 num_points,_current_ego_state->road_width_left_vec[0]
@@ -377,7 +376,9 @@ std::shared_ptr<AD_algorithm::planner::PlannerBase> PlanningAgent::createPlanner
         return std::make_shared<EMPlanner>();
     }
     // Future: Add other planners here
-    // if (type == "lattice") return std::make_shared<latticePlanner>();
+    if (type == "lattice") {
+        return std::make_shared<latticePlanner>();
+    }
     
     RCLCPP_ERROR(this->get_logger(), "未知规划器类型: %s, 默认使用 EMPlanner", type.c_str());
     return std::make_shared<EMPlanner>();

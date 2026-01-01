@@ -37,7 +37,7 @@ public:
     }
     
     // 速度规划主函数
-    std::vector<general::STPoint> planSpeed(
+    std::vector<general::FrenetPoint> planSpeed(
         const AD_algorithm::general::FrenetFrame& ref_path_frame,
         const general::TrajectoryPoint& planning_start_point,
         double reference_speed,
@@ -51,12 +51,12 @@ private:
     // logger is after config_ to match constructor initializer order
     //成员函数
     // 生成ST图
-    std::vector<std::vector<general::STPoint>> generateSTGraph(
+std::vector<std::vector<general::FrenetPoint>> generateSTGraph(
         const std::vector<std::vector<general::FrenetPoint>>& dynamic_obstacles,
         double delta_l = 2.0);
-        
+    
     // 加密速度剖面
-    void increaseSpeedProfile(std::vector<general::STPoint>& DP_or_QP,double interval);
+    void increaseSpeedProfile(std::vector<general::FrenetPoint>& DP_or_QP,double interval);
     
     void generate_convex_space(AD_algorithm::general::FrenetFrame ref_path_frenet,
         const std::vector<general::STObstacle>& st_obstacles,
@@ -74,8 +74,8 @@ private:
     std::shared_ptr<general::Logger> logger_;
     std::shared_ptr<std::vector<std::vector<STState>>> _sample_grid=nullptr; // 预计算的采样网格
     std::shared_ptr<OsqpEigen::Solver> _qp_solver;
-    std::vector<AD_algorithm::general::STPoint> _dp_speed_profile;
-    std::vector<AD_algorithm::general::STPoint> _qp_speed_profile;
+    std::vector<AD_algorithm::general::FrenetPoint> _dp_speed_profile;
+    std::vector<AD_algorithm::general::FrenetPoint> _qp_speed_profile;
 };
 
 } // namespace planner

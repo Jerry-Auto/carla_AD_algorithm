@@ -36,7 +36,6 @@ add_library(${PROJECT_NAME} STATIC
   src/Vehicle.cpp
   src/Trajectory.cpp
   src/math_tool.cpp
-  src/ST_graph.cpp
   src/visualization_tool.cpp
   src/csv_logger.cpp
   src/polynomial_curve.cpp
@@ -145,7 +144,7 @@ ament_export_dependencies(
 # ========================
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
-  ament_lint_auto_find_test_dependencies()
+
 endif()
 
 ament_package()

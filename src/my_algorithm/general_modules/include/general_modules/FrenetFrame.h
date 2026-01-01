@@ -43,31 +43,28 @@ public:
     }
 
     // 坐标转换
-    FrenetPoint cartesian_to_frenet(double x, double y) const;
-    FrenetPoint cartesian_to_frenet(const TrajectoryPoint& cart_point) const;
-    FrenetPoint cartesian_to_frenet(const VehicleState& cart_point) const;
-    std::vector<FrenetPoint> cartesian_to_frenet(const std::vector<TrajectoryPoint>& cart_points) const;
+    FrenetPoint cartesian_to_frenet(double x, double y) const;// 只能获得s,l
+    FrenetPoint cartesian_to_frenet(const TrajectoryPoint& cart_point) const;// 能够获得完整的frenet信息
+    FrenetPoint cartesian_to_frenet(const VehicleState& cart_point) const;// 能够获得完整的frenet信息
+    std::vector<FrenetPoint> cartesian_to_frenet(const std::vector<TrajectoryPoint>& cart_points) const;// 批量转换
     
-    TrajectoryPoint frenet_to_cartesian(const FrenetPoint& frenet_point) const;
-    std::vector<TrajectoryPoint> frenet_to_cartesian(const std::vector<FrenetPoint>& frenet_points) const;
+    TrajectoryPoint frenet_to_cartesian(const FrenetPoint& frenet_point) const; // 单点转换,完备信息
+    std::vector<TrajectoryPoint> frenet_to_cartesian(const std::vector<FrenetPoint>& frenet_points) const; // 批量转换
 
-    // SLT 坐标转换（包含时间维度）
-    SLTPoint cartesian_to_slt(double x, double y, double t, double vx = 0.0, double vy = 0.0) const;
-    SLTPoint cartesian_to_slt(const TrajectoryPoint& cart_point) const;
-    std::vector<SLTPoint> cartesian_to_slt(const std::vector<TrajectoryPoint>& cart_points) const;
-    
-    TrajectoryPoint slt_to_cartesian(const SLTPoint& slt_point) const;
-    std::vector<TrajectoryPoint> slt_to_cartesian(const std::vector<SLTPoint>& slt_points) const;
+    // 障碍物投影
+    std::vector<FrenetPoint> project_obstacle_to_frenet(const Obstacle& obstacle) const;// 仅投影位置s,l
+    std::vector<FrenetPoint> project_dynamic_obstacle_to_frenet(const Obstacle& obstacle) const;// 投影位置并赋予速度信息s,l,ṡ,l̇
 
-    // 障碍物投影到 SLT 空间
-    std::vector<SLTPoint> project_obstacle_to_slt(const Obstacle& obstacle, double current_time = 0.0) const;
-    std::vector<SLTPoint> project_dynamic_obstacle_to_slt(const Obstacle& obstacle) const;
-    
-    // 创建 SLT 障碍物
-    SLTObstacle create_slt_obstacle(const Obstacle& obstacle, double current_time = 0.0) const;
-    std::vector<SLTObstacle> create_slt_obstacles(const std::vector<Obstacle>& obstacles, double current_time = 0.0) const;
-    std::vector<FrenetPoint> project_obstacle_to_frenet(const Obstacle& obstacle) const;
-    std::vector<FrenetPoint> project_dynamic_obstacle_to_frenet(const Obstacle& obstacle) const;
+    // 将一组 Frenet 多边形（每个 obstacle 的角点）转换为 SLObstacle 列表
+    // static 便于在不持有 FrenetFrame 实例时调用
+    static std::vector<SLObstacle> convertToSLObstacles(
+        const std::vector<std::vector<FrenetPoint>>& frenet_obstacles,
+        double safety_margin = 0.5);
+
+    // 将 ST 图节点（FrenetPoint 按 t,s）转换为 STObstacle 列表
+    static std::vector<STObstacle> convertToSTObstacles(
+        const std::vector<std::vector<FrenetPoint>>& st_graph,
+        double safety_margin = 0.5);
 
     // 访问
     const std::vector<PathPoint>& get_reference_path() const { return ref_line_.get_path_points(); }
@@ -80,16 +77,18 @@ public:
     std::pair<TrajectoryPoint,double> get_matched_trj_point(double time_stamp)const;
 
     std::pair<TrajectoryPoint,double> get_matched_trj_point(double x, double y, double heading)const;
-
-    // 基于时间的 SLT 匹配和查询
-    SLTPoint get_slt_at_time(double time) const;
-    std::vector<SLTPoint> get_slt_trajectory(double start_time, double end_time, double dt = 0.1) const;
     
-    // 时间范围查询
-    double get_trajectory_start_time() const;
-    double get_trajectory_end_time() const;
-    bool is_time_in_trajectory(double time) const;
-
+    // 允许通过 [] 访问参考线上的 PathPoint（只读）
+    const PathPoint& operator[](size_t index) const {
+        return ref_line_[index];
+    }
+    const TrajectoryPoint& traj_point(size_t index) const {
+        return _trajectory_points[index];
+    }
+    size_t size() const {
+        return ref_line_.size();
+    }
+private:
     struct ProjectionResult {
         double s;
         double l;
@@ -99,21 +98,9 @@ public:
         Eigen::Vector2d tau;
         Eigen::Vector2d nor;
     };
-    
+
     ProjectionResult project_to_path_with_memory(double x, double y, double heading) const;
     
-    // 允许通过 [] 访问参考线上的 PathPoint（只读）
-    const PathPoint& operator[](size_t index) const {
-        return ref_line_[index];
-    }
-    const TrajectoryPoint& traj_point(size_t index) const {
-        return _trajectory_points[index];
-    }
-    
-    size_t size() const {
-        return ref_line_.size();
-    }
-private:
     ReferenceLine ref_line_;
     std::vector<TrajectoryPoint> _trajectory_points;
 
@@ -128,6 +115,5 @@ private:
     size_t find_nearest_index(double x, double y) const ;
     ProjectionResult project_to_path(double x, double y) const ;
 };
-
 } // namespace general
 } // namespace AD_algorithm

@@ -114,7 +114,7 @@ std::vector<TrajectoryPoint> PathPlanner::planPath(
         local_frenet_obstacles.push_back(corners);
     }
     
-    std::vector<SLObstacle> sl_obstacles = convertToSLObstacles(local_frenet_obstacles, weights_.obs_safety_margin);
+    std::vector<SLObstacle> sl_obstacles = FrenetFrame::convertToSLObstacles(local_frenet_obstacles, weights_.obs_safety_margin);
     
     // 创建策略
     auto cost_function = std::make_shared<PathCostFunction>(weights_, config_, sl_obstacles);
@@ -392,7 +392,7 @@ bool PathPlanner::QP_pathOptimization(const std::vector<double>& l_min,const std
         up_boundary_collision[4*i + 2] = ubi - car_width/2.0;
         up_boundary_collision[4*i + 3] = ubi + car_width/2.0;
     }
-    
+
     // 放宽起点附近的避障约束，允许车辆从非法位置回归
     int relax_num = 5; // 放宽前5个点
     if (relax_num > static_cast<int>(point_num)) relax_num = static_cast<int>(point_num); // Cast point_num to int
@@ -453,6 +453,7 @@ bool PathPlanner::QP_pathOptimization(const std::vector<double>& l_min,const std
     
     low_boundary_total << low_boundary_continuity, low_boundary_collision, b_start;
     up_boundary_total << up_boundary_continuity, up_boundary_collision, b_start;
+
     
     // ==========================================
     // 3. 求解 (Solve)
@@ -566,10 +567,11 @@ void PathPlanner::generateConvexSpace(
     const std::vector<std::vector<general::FrenetPoint>>& static_obstacles,
     std::vector<double>& l_min,
     std::vector<double>& l_max) {
+    // 约定：_road_width_left_vec / _road_width_right_vec 的起点与规划起点对齐，分辨率约为 1m。
+    // 障碍物是frenet坐标系下的点集，每个障碍物由多个角点组成，已经转换为局部坐标系，起点是规划起点
 
     // 道路边界：使用 road width 向量按 s 查找（线性插值）
-    // 约定：_road_width_left_vec / _road_width_right_vec 的起点与规划起点对齐，分辨率约为 1m。
-    // 其中 left/right 存储的是“参考线到左右边界的距离”(>=0)。
+    // 其中 left/right 存储的是“参考线到左右边界的距离”，左边是正的，右边是负的
     const double resolution = (_road_width_resolution > 1e-6) ? _road_width_resolution : 1.0;
     auto lerp = [](double a, double b, double t) { return a + (b - a) * t; };
 
@@ -597,9 +599,9 @@ void PathPlanner::generateConvexSpace(
         const double right_w = widthAtS(_road_width_right_vec, s, -config_.lane_width * 0.5);
 
         // Frenet：l>0 在左侧，l<0 在右侧
-        // right_w 本身为负，所以道路下界应直接取 right_w 再加 safety_margin 向内收缩
-        const double road_up = left_w - weights_.safety_margin;
-        const double road_low = right_w + weights_.safety_margin;
+        // right_w 本身为负，所以道路下界应直接取 right_w 再加 obs_safety_margin 向内收缩
+        const double road_up = left_w - weights_.obs_safety_margin;
+        const double road_low = right_w + weights_.obs_safety_margin;
 
         // 防御：如果道路宽度数据异常导致上下界反转，退化为零宽并避免 NaN
         if (road_low <= road_up) {
@@ -690,12 +692,12 @@ void PathPlanner::generateConvexSpace(
         if (decision == NearestObsDecision::BypassLeft) { // 左侧绕行
             log("DEBUG", "Left bypass. start=", start_index, ", end=", end_index);
             for (int i = start_index; i <= end_index; i++) {
-                l_min[i] = std::max(l_min[i], l_max_obs + weights_.safety_margin);
+                l_min[i] = std::max(l_min[i], l_max_obs + weights_.obs_safety_margin);
             }
         } else { // 右侧绕行
             log("DEBUG", "Right bypass. start=", start_index, ", end=", end_index);
             for (int i = start_index; i <= end_index; i++) {
-                l_max[i] = std::min(l_max[i], l_min_obs - weights_.safety_margin);
+                l_max[i] = std::min(l_max[i], l_min_obs - weights_.obs_safety_margin);
             }
         }
     }

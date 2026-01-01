@@ -1,7 +1,9 @@
+/* Copyright 2025 <Your Name> */
+
 #include "general_modules/polynomial_curve.h"
 #include <iostream>
 #include <Eigen/QR>
-#include <limits>
+#include <limits> 
 
 namespace AD_algorithm {
 namespace general {
@@ -9,9 +11,10 @@ namespace general {
 PolynomialCurve::PolynomialCurve() : order_(5), x_offset_(0.0) {
     coefficients_ = Eigen::VectorXd::Zero(order_ + 1);
 }
-
+//五次多项式拟合
 bool PolynomialCurve::curve_fitting(double x1, double y1, double dy1, double ddy1,
                   double x2, double y2, double dy2, double ddy2) {
+
     const double dx = x2 - x1;
     // 极小区间：直接退化为常值/线性，保证成功
     if (std::abs(dx) < 1e-8) {
@@ -43,7 +46,7 @@ bool PolynomialCurve::curve_fitting(double x1, double y1, double dy1, double ddy
     coefficients_[1] = (y2 - y1) / dx;
     return true;
 }
-
+// 四次多项式拟合
 bool PolynomialCurve::curve_fitting(double x1, double y1, double dy1, double ddy1,
                   double x2, double dy2, double ddy2) {
     const double dx = x2 - x1;

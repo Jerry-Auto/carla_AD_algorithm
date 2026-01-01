@@ -28,7 +28,7 @@
 #include "general_modules/planner_base.h"
 #include "emplanner/emplanner.h"
 #include "general_modules/visualization_tool.h"
-
+#include "lattice/lattice_planner.h"
 
 namespace AD_algorithm {
 namespace agent {

@@ -1,5 +1,7 @@
+/* Copyright 2025 <Your Name> */
+
 #include "general_modules/collision_detection.h"
-#include <memory>
+#include <memory> 
 
 namespace AD_algorithm {
 namespace general {

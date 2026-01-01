@@ -21,7 +21,7 @@ SpeedPlanner::SpeedPlanner(const WeightCoefficients& weights, const SpeedPlanner
     _qp_solver->settings()->setWarmStart(true);
 }
 
-std::vector<STPoint> SpeedPlanner::planSpeed(
+std::vector<FrenetPoint> SpeedPlanner::planSpeed(
         const FrenetFrame& ref_path_frame,
         const TrajectoryPoint& planning_start_point,
         double reference_speed,
@@ -48,7 +48,7 @@ std::vector<STPoint> SpeedPlanner::planSpeed(
     log("INFO", "Generated ST graph with " + std::to_string(st_graph.size()) + " obstacles");
     
     // 2. 计算规划起点（ST坐标系）
-    STPoint start_point;
+    FrenetPoint start_point;
     start_point.t = 0.0;
     start_point.s = 0.0;
     start_point.s_dot = planning_start_point.v;
@@ -71,7 +71,7 @@ std::vector<STPoint> SpeedPlanner::planSpeed(
                        start_point.s_dot, start_point.s_dot_dot);
     
     // 转换障碍物
-    std::vector<STObstacle> st_obstacles = convertToSTObstacles(st_graph, weights_.obs_safety_margin/10);//ST数值维度的安全距离与几何维度不同，这里设置一个很小的值
+    std::vector<STObstacle> st_obstacles = FrenetFrame::convertToSTObstacles(st_graph, weights_.obs_safety_margin/10);//ST数值维度的安全距离与几何维度不同，这里设置一个很小的值
     // 获取轨迹的最大S值
     PathPoint last_PathPoint=ref_path_frame[ref_path_frame.size()-1];
     config_.s_max=last_PathPoint.accumulated_s;
@@ -117,7 +117,7 @@ std::vector<STPoint> SpeedPlanner::planSpeed(
     
     // 转换结果
     for (const auto& state : result.optimal_path) {
-        STPoint point;
+        FrenetPoint point;
         point.t = state.t;
         point.s = state.s;
         point.s_dot = state.s_dot;
@@ -169,13 +169,13 @@ std::vector<STPoint> SpeedPlanner::planSpeed(
 }
 
 
-std::vector<std::vector<general::STPoint>> SpeedPlanner::generateSTGraph(
+std::vector<std::vector<general::FrenetPoint>> SpeedPlanner::generateSTGraph(
     const std::vector<std::vector<FrenetPoint>>& dynamic_obstacles,
     double delta_l) {
     // 时间t是以当前时刻为0点的相对时间,
     // 也就是从现在开始，障碍物几秒后移动到我的安全边界内,这个点就是t_in
     // t_in对应会有位置s_in,离开安全边界的时间是t_out,位置是s_out
-    std::vector<std::vector<general::STPoint>> st_graph;
+    std::vector<std::vector<general::FrenetPoint>> st_graph;
     for (const auto& corners : dynamic_obstacles) {
         if (corners.empty()) continue;
 
@@ -240,7 +240,7 @@ std::vector<std::vector<general::STPoint>> SpeedPlanner::generateSTGraph(
             continue; // 忽略太远或太近的障碍物
         }
 
-        // 创建 4 个 STPoint 组成的多边形 (平行四边形)
+        // 创建 4 个 FrenetPoint 组成的多边形 (平行四边形)
         double s_at_tin = s_center + s_dot * t_in;
         double s_at_tout = s_center + s_dot * t_out;
         
@@ -248,7 +248,7 @@ std::vector<std::vector<general::STPoint>> SpeedPlanner::generateSTGraph(
         double safety_s = 0.5; 
         double total_half_s = half_s + safety_s;
 
-        std::vector<general::STPoint> st_polygon(4);
+        std::vector<general::FrenetPoint> st_polygon(4);
         st_polygon[0].t = t_in;  st_polygon[0].s = s_at_tin - total_half_s;
         st_polygon[1].t = t_in;  st_polygon[1].s = s_at_tin + total_half_s;
         st_polygon[2].t = t_out; st_polygon[2].s = s_at_tout + total_half_s;
@@ -447,8 +447,8 @@ void SpeedPlanner::generate_convex_space(
 }
 
 
-void SpeedPlanner::increaseSpeedProfile(std::vector<general::STPoint>& DP_or_QP,double interval) {
-    std::vector<general::STPoint> dense_path;
+void SpeedPlanner::increaseSpeedProfile(std::vector<general::FrenetPoint>& DP_or_QP,double interval) {
+    std::vector<general::FrenetPoint> dense_path;
     
     for(size_t i=0;i<DP_or_QP.size()-1;++i){
         const auto& p0 = DP_or_QP[i];
@@ -476,7 +476,7 @@ void SpeedPlanner::increaseSpeedProfile(std::vector<general::STPoint>& DP_or_QP,
         for(int j=0;j<static_cast<int>(linspace.size())-1;++j){
             double t = linspace[j];
             if(t>p1.t) t=p1.t;//防止数值误差超过终点
-            general::STPoint fp;
+            general::FrenetPoint fp;
             fp.t = t;
             fp.s = poly.value_evaluation(t,0);
             fp.s_dot = poly.value_evaluation(t,1);
@@ -705,7 +705,7 @@ bool SpeedPlanner::QP_traj_optimal(const std::vector<double>& s_lb, const std::v
         auto solution = _qp_solver->getSolution();
         _qp_speed_profile.clear();
         for (size_t i = 0; i < point_num; i++) {
-            STPoint cur_st_point;
+            FrenetPoint cur_st_point;
             cur_st_point.t = _dp_speed_profile[i].t;
             cur_st_point.s = solution[3*i + 0];
             cur_st_point.s_dot = solution[3*i + 1];

@@ -2,6 +2,7 @@
 #include <cmath>
 #include <limits>
 #include <iostream>
+#include <sstream>
 #include <Eigen/Dense>
 
 namespace AD_algorithm {
@@ -272,6 +273,60 @@ void TrajectoryManager::updateEgoState(const std::shared_ptr<VehicleState>& ego_
 }
 
 bool TrajectoryManager::isPathValid(
+    const std::vector<TrajectoryPoint>& path_trajectory,
+    std::string* reason,
+    size_t min_points) const
+{
+    auto fail = [&](const std::string& msg) {
+        if (reason) {
+            *reason = msg;
+        }
+        return false;
+    };
+
+    if (path_trajectory.size() < min_points) {
+        return fail("path points < min_points (" + std::to_string(path_trajectory.size()) + " < " + std::to_string(min_points) + ")");
+    }
+
+    auto is_finite = [](double v) { return std::isfinite(v); };
+    constexpr double kMaxStepDist = 30.0;
+    constexpr double kMaxHeadingJump = 1.0;
+    constexpr double kMaxKappa = 5.0;
+
+    for (size_t i = 0; i < path_trajectory.size(); ++i) {
+        const auto& p = path_trajectory[i];
+        if (!is_finite(p.x) || !is_finite(p.y) || !is_finite(p.heading) || !is_finite(p.kappa)) {
+            return fail("non-finite path value at index " + std::to_string(i));
+        }
+        if (std::abs(p.kappa) > kMaxKappa) {
+            return fail("abs(kappa) too large at index " + std::to_string(i));
+        }
+    }
+
+    for (size_t i = 1; i < path_trajectory.size(); ++i) {
+        const auto& p0 = path_trajectory[i - 1];
+        const auto& p1 = path_trajectory[i];
+
+        const double dist = std::hypot(p1.x - p0.x, p1.y - p0.y);
+        if (dist > kMaxStepDist) {
+            return fail("step distance too large at index " + std::to_string(i));
+        }
+
+        double heading_diff = p1.heading - p0.heading;
+        while (heading_diff > M_PI) heading_diff -= 2 * M_PI;
+        while (heading_diff < -M_PI) heading_diff += 2 * M_PI;
+        if (std::abs(heading_diff) > kMaxHeadingJump) {
+            return fail("heading jump too large at index " + std::to_string(i));
+        }
+    }
+
+    if (reason) {
+        reason->clear();
+    }
+    return true;
+}
+
+bool TrajectoryManager::isPathValid(
     const FrenetFrame& path_trajectory,
     std::string* reason,
     size_t min_points) const
@@ -334,8 +389,8 @@ bool TrajectoryManager::isPathValid(
                         " ego=" + std::to_string(ego_heading) +
                         " diff=" + std::to_string(heading_diff));
         }
-        
     }
+
     if (reason) {
         reason->clear();
     }
@@ -343,7 +398,7 @@ bool TrajectoryManager::isPathValid(
 }
 
 bool TrajectoryManager::isSpeedProfileValid(
-    const std::vector<STPoint>& speed_profile,
+    const std::vector<FrenetPoint>& speed_profile,
     std::string* reason,
     size_t min_points) const
 {
@@ -436,14 +491,14 @@ bool TrajectoryManager::isTrajectoryValid(
         if (!is_finite(p.kappa) || !is_finite(p.ax) || !is_finite(p.ay) || !is_finite(p.a_tau)) {
             return fail("non-finite dynamics at index " + std::to_string(i));
         }
-        // 宽松物理边界：用于排除明显异常
-        if (std::abs(p.v) > 100.0) {
+        // 使用可配置的物理边界：用于排除明显异常
+        if (std::abs(p.v) > max_speed_) {
             return fail("abs(v) too large at index " + std::to_string(i));
         }
-        if (std::abs(p.ax) > 50.0 || std::abs(p.ay) > 50.0 || std::abs(p.a_tau) > 50.0) {
+        if (std::abs(p.ax) > max_acc_ || std::abs(p.ay) > max_acc_ || std::abs(p.a_tau) > max_acc_) {
             return fail("acc too large at index " + std::to_string(i));
         }
-        if (std::abs(p.kappa) > 10.0) {
+        if (std::abs(p.kappa) > max_curvature_) {
             return fail("abs(kappa) too large at index " + std::to_string(i));
         }
     }
@@ -485,10 +540,22 @@ bool TrajectoryManager::isTrajectoryValid(
         }
     }
 
+    // 额外：检查 jerk（对 a_tau 做有限差分）
+    double max_jerk = max_jerk_;
+    for (size_t i = 1; i + 1 < trajectory.size(); ++i) {
+        double dt1 = trajectory[i].time_stamped - trajectory[i-1].time_stamped;
+        double dt2 = trajectory[i+1].time_stamped - trajectory[i].time_stamped;
+        if (dt1 <= 1e-6 || dt2 <= 1e-6) continue;
+        double jerk1 = (trajectory[i].a_tau - trajectory[i-1].a_tau) / dt1;
+        double jerk2 = (trajectory[i+1].a_tau - trajectory[i].a_tau) / dt2;
+        double jerk = std::max(std::abs(jerk1), std::abs(jerk2));
+        if (jerk > max_jerk) return fail("Jerk out of bound");
+    }
+
     if (reason) {
         reason->clear();
     }
-        // 更新上一周期轨迹（同样优化）
+    // 更新上一周期轨迹（同样优化）
     previous_trajectory_.clear();
     previous_trajectory_.insert(previous_trajectory_.end(),
                                 trajectory.begin(),
@@ -496,6 +563,19 @@ bool TrajectoryManager::isTrajectoryValid(
     return true;
 }
 
+void TrajectoryManager::setLimits(double max_speed, double max_acc, double max_curvature, double max_jerk) {
+    max_speed_ = max_speed;
+    max_acc_ = max_acc;
+    max_curvature_ = max_curvature;
+    max_jerk_ = max_jerk;
+}
+
+void TrajectoryManager::getLimits(double& max_speed, double& max_acc, double& max_curvature, double& max_jerk) const {
+    max_speed = max_speed_;
+    max_acc = max_acc_;
+    max_curvature = max_curvature_;
+    max_jerk = max_jerk_;
+}
 
 } // namespace general
 } // namespace AD_algorithm

@@ -1,3 +1,5 @@
+/* Copyright 2025 <Your Name> */
+
 #include "general_modules/FrenetFrame.h"
 #include <limits>
 #include <cmath>
@@ -266,13 +268,39 @@ FrenetPoint FrenetFrame::cartesian_to_frenet(const TrajectoryPoint& tp) const {
     double l_dot = v_cart.dot(proj.nor);
     double l_prime = (std::abs(s_dot) > 1e-5) ? l_dot / s_dot : 0.0;
 
+    // 使用全量加速度投影来计算 s̈ 和 l̈（包含 κ' 与耦合项），更精确
+    Eigen::Vector2d a_cart(tp.ax, tp.ay);
+    double a_t = a_cart.dot(proj.tau);
+    double a_n = a_cart.dot(proj.nor);
+
+    PathPoint ref = interpolate_by_s(proj.s);
+    double kappa = proj.kappa;
+    double kappa_prime = ref.kappa_rate; // dκ/ds
+
+    // a_n = l̈ + κ (1 - κ l) ṡ^2  => l̈ = a_n - κ (1 - κ l) ṡ^2
+    double l_dot_dot = a_n - kappa * c * s_dot * s_dot;
+
+    // a_t = (1 - κ l) s̈ - κ' l ṡ^2 - 2 κ ṡ l̇
+    // => s̈ = (a_t + κ' l ṡ^2 + 2 κ ṡ l̇) / (1 - κ l)
+    double s_dot_dot = (a_t + kappa_prime * proj.l * s_dot * s_dot + 2.0 * kappa * s_dot * l_dot) / (c + 1e-9);
+
     FrenetPoint fp;
+    fp.t = tp.time_stamped;
     fp.s = proj.s;
     fp.l = proj.l;
     fp.s_dot = s_dot;
+    fp.s_dot_dot = s_dot_dot;
     fp.l_dot = l_dot;
+    fp.l_dot_dot = l_dot_dot;
     fp.l_prime = l_prime;
-    fp.s_dot_dot = tp.a_tau;
+
+    // l''(s) = d^2 l / ds^2 = (l̈ * ṡ - l̇ * s̈) / ṡ^3
+    if (std::abs(s_dot) > 1e-6) {
+        fp.l_prime_prime = (l_dot_dot * s_dot - l_dot * s_dot_dot) / (s_dot * s_dot * s_dot);
+    } else {
+        fp.l_prime_prime = 0.0;
+    }
+
     return fp;
 }
 
@@ -288,17 +316,34 @@ FrenetPoint FrenetFrame::cartesian_to_frenet(const VehicleState& tp) const {
     double l_dot = v_cart.dot(proj.nor);
     double l_prime = (std::abs(s_dot) > 1e-5) ? l_dot / s_dot : 0.0;
 
-    // 计算加速度在 Frenet 坐标系中的切向分量
     Eigen::Vector2d a_cart(tp.ax, tp.ay);
-    double s_dot_dot = a_cart.dot(proj.tau) / (c + 1e-9);
+    double a_t = a_cart.dot(proj.tau);
+    double a_n = a_cart.dot(proj.nor);
+
+    PathPoint ref = interpolate_by_s(proj.s);
+    double kappa = proj.kappa;
+    double kappa_prime = ref.kappa_rate;
+
+    double l_dot_dot = a_n - kappa * c * s_dot * s_dot;
+    double s_dot_dot = (a_t + kappa_prime * proj.l * s_dot * s_dot + 2.0 * kappa * s_dot * l_dot) / (c + 1e-9);
 
     FrenetPoint fp;
+    fp.t = tp.time_stamp;
     fp.s = proj.s;
     fp.l = proj.l;
     fp.s_dot = s_dot;
     fp.l_dot = l_dot;
     fp.l_prime = l_prime;
     fp.s_dot_dot = s_dot_dot;
+    fp.l_dot_dot = l_dot_dot;
+
+    // 计算 l''(s) 并保护 ṡ≈0 的情况
+    if (std::abs(s_dot) > 1e-6) {
+        fp.l_prime_prime = (l_dot_dot * s_dot - l_dot * s_dot_dot) / (s_dot * s_dot * s_dot);
+    } else {
+        fp.l_prime_prime = 0.0;
+    }
+
     return fp;
 }
 
@@ -332,7 +377,6 @@ TrajectoryPoint FrenetFrame::frenet_to_cartesian(const FrenetPoint& fp) const {
         const double a_n = result.v * result.v * result.kappa;
         result.ax = result.a_tau * std::cos(result.heading) - a_n * std::sin(result.heading);
         result.ay = result.a_tau * std::sin(result.heading) + a_n * std::cos(result.heading);
-        return result;
     } else if (s > total_s) {
         // 外推终点之后：使用终点姿态
         const PathPoint& pe = path.back();
@@ -350,30 +394,65 @@ TrajectoryPoint FrenetFrame::frenet_to_cartesian(const FrenetPoint& fp) const {
         const double a_n = result.v * result.v * result.kappa;
         result.ax = result.a_tau * std::cos(result.heading) - a_n * std::sin(result.heading);
         result.ay = result.a_tau * std::sin(result.heading) + a_n * std::cos(result.heading);
-        return result;
     } else {
-    PathPoint ref = interpolate_by_s(fp.s);
-    Eigen::Vector2d pos(ref.x, ref.y);
-    pos += fp.l * Eigen::Vector2d(-std::sin(ref.heading), std::cos(ref.heading));
-
-    double c = 1.0 - ref.kappa * fp.l;
-    double delta_theta = std::atan2(fp.l_prime, c);
-    double heading = ref.heading + delta_theta;
-    double v = std::hypot(fp.s_dot * c, fp.l_dot);
-
-    TrajectoryPoint tp;
-    tp.x = pos.x();
-    tp.y = pos.y();
-    tp.heading = heading;
-    tp.v = v;
-    tp.kappa = ref.kappa;
-    tp.a_tau = fp.s_dot_dot;
-    // 将加速度分解为：切向 a_t + 向心 a_n，并投影到全局坐标 (x,y)
-    const double a_n = tp.v * tp.v * tp.kappa;
-    tp.ax = tp.a_tau * std::cos(tp.heading) - a_n * std::sin(tp.heading);
-    tp.ay = tp.a_tau * std::sin(tp.heading) + a_n * std::cos(tp.heading);
-    return tp;
+        PathPoint ref = interpolate_by_s(fp.s);
+        Eigen::Vector2d pos(ref.x, ref.y);
+        Eigen::Vector2d tau_ref(std::cos(ref.heading), std::sin(ref.heading));
+        Eigen::Vector2d nor_ref(-std::sin(ref.heading), std::cos(ref.heading));
+        pos += fp.l * nor_ref;
+        double c = 1.0 - ref.kappa * fp.l;
+        double u = fp.l_prime; // dl/ds
+        double denom = c * c + u * u;
+        double delta_theta = std::atan2(u, c);
+        double heading = ref.heading + delta_theta;
+        double v = std::hypot(fp.s_dot * c, fp.l_dot);
+        // prepare derivatives
+        double s_dot = fp.s_dot;
+        double s_dot_dot = fp.s_dot_dot;
+        double l_dot = fp.l_dot;
+        double u_dot = fp.l_prime_prime * s_dot; // dl'/dt = (d^2 l / ds^2) * ds/dt
+        // d/dt c = - (kappa' * s_dot * l + kappa * l_dot)
+        double d_c = - (ref.kappa_rate * s_dot * fp.l + ref.kappa * l_dot);
+        // 计算 r'' 在参考系的切向和法向分量
+        // τ_comp = s̈ * c + ṡ * d_c - κ_ref * ṡ^2 * u
+        // n_comp = s̈ * u + κ_ref * c * ṡ^2 + ṡ * u_dot
+        double tau_comp = s_dot_dot * c + s_dot * d_c - ref.kappa * s_dot * s_dot * u;
+        double nor_comp = s_dot_dot * u + ref.kappa * c * s_dot * s_dot + s_dot * u_dot;
+        // 全局加速度
+        result.x = pos.x();
+        result.y = pos.y();
+        result.heading = heading;
+        result.v = v;
+        result.ax = tau_comp * tau_ref.x() + nor_comp * nor_ref.x();
+        result.ay = tau_comp * tau_ref.y() + nor_comp * nor_ref.y();
+        // 切向加速度（投影到车辆朝向）
+        result.a_tau = result.ax * std::cos(heading) + result.ay * std::sin(heading);
+        // 计算航向变化率（θ̇ = κ_ref * ṡ + δθ̇）
+        double delta_theta_dot = 0.0;
+        if (denom > 1e-12) {
+            delta_theta_dot = (u_dot * c - u * d_c) / denom;
+        }
+        double heading_dot = ref.kappa * s_dot + delta_theta_dot;
+        // 曲率 κ = θ̇ / v
+        // 注意：在低速情况下直接除以 v 会造成数值爆炸，使用更宽松的速度阈值作为退化条件
+        const double kLowSpeedThreshold = 0.1; // m/s
+        if (v > kLowSpeedThreshold) {
+            result.kappa = heading_dot / v;
+            // 额外检测：如果计算得到极大曲率，记录用于诊断
+            if (std::abs(result.kappa) > 1000.0) {
+                std::cerr << "[DEBUG] large computed kappa=" << result.kappa << " at t=" << fp.t
+                          << " heading_dot=" << heading_dot << " v=" << v << " ref.kappa=" << ref.kappa << std::endl;
+            }
+        } else {
+            // 低速或驻停：退化到参考线曲率，避免除零或噪声放大
+            result.kappa = ref.kappa; // 低速退化到参考线曲率
+            if (std::abs(heading_dot) > 1.0) {
+                std::cerr << "[DEBUG] low-speed fallback: heading_dot=" << heading_dot << " v=" << v << " ref.kappa=" << ref.kappa << std::endl;
+            }
+        }
     }
+    result.time_stamped = fp.t;
+    return result;
 }
 
 std::vector<TrajectoryPoint> FrenetFrame::frenet_to_cartesian(const std::vector<FrenetPoint>& fps) const {
@@ -403,6 +482,28 @@ std::vector<FrenetPoint> FrenetFrame::project_obstacle_to_frenet(const Obstacle&
         frenet_corners.push_back(cartesian_to_frenet(corner.x, corner.y));
     }
     return frenet_corners;
+}
+
+// 将一组 Frenet 多边形转换为 SLObstacle 列表（静态工具）
+std::vector<SLObstacle> FrenetFrame::convertToSLObstacles(
+    const std::vector<std::vector<FrenetPoint>>& frenet_obstacles,
+    double safety_margin) {
+    std::vector<SLObstacle> obstacles;
+    for (const auto& corners : frenet_obstacles) {
+        obstacles.emplace_back(corners, safety_margin);
+    }
+    return obstacles;
+}
+
+// 将 ST 图节点（使用 FrenetPoint 的 t/s 字段）转换为 STObstacle 列表（静态工具）
+std::vector<STObstacle> FrenetFrame::convertToSTObstacles(
+    const std::vector<std::vector<FrenetPoint>>& st_graph,
+    double safety_margin) {
+    std::vector<STObstacle> obstacles;
+    for (const auto& points : st_graph) {
+        obstacles.emplace_back(points, safety_margin);
+    }
+    return obstacles;
 }
 
 std::vector<FrenetPoint> FrenetFrame::project_dynamic_obstacle_to_frenet(const Obstacle& obstacle) const {
@@ -438,193 +539,6 @@ std::vector<FrenetPoint> FrenetFrame::project_dynamic_obstacle_to_frenet(const O
         frenet_corners.push_back(fp);
     }
     return frenet_corners;
-}
-
-// ==================== SLT 坐标转换实现 ====================
-
-SLTPoint FrenetFrame::cartesian_to_slt(double x, double y, double t, double vx, double vy) const {
-    // 首先转换为 Frenet 坐标
-    FrenetPoint fp = cartesian_to_frenet(x, y);
-    
-    // 计算速度在 Frenet 坐标系下的投影
-    // 这里需要根据路径切线和法线方向分解速度
-    PathPoint matched_point = get_matched_point(x, y, 0.0); // 获取匹配点
-    double cos_theta = std::cos(matched_point.heading);
-    double sin_theta = std::sin(matched_point.heading);
-    
-    // 纵向速度（沿路径切线方向）
-    fp.s_dot = vx * cos_theta + vy * sin_theta;
-    // 横向速度（沿路径法线方向）
-    fp.l_dot = -vx * sin_theta + vy * cos_theta;
-    
-    // 构造 SLTPoint
-    SLTPoint slt;
-    slt.s = fp.s;
-    slt.l = fp.l;
-    slt.t = t;
-    slt.s_dot = fp.s_dot;
-    slt.l_dot = fp.l_dot;
-    slt.s_dot_dot = 0.0; // 需要加速度信息，这里暂时设为0
-    slt.l_dot_dot = 0.0;
-    
-    return slt;
-}
-
-SLTPoint FrenetFrame::cartesian_to_slt(const TrajectoryPoint& cart_point) const {
-    return cartesian_to_slt(cart_point.x, cart_point.y, cart_point.time_stamped, 
-                           cart_point.v * std::cos(cart_point.heading), 
-                           cart_point.v * std::sin(cart_point.heading));
-}
-
-std::vector<SLTPoint> FrenetFrame::cartesian_to_slt(const std::vector<TrajectoryPoint>& cart_points) const {
-    std::vector<SLTPoint> slt_points;
-    slt_points.reserve(cart_points.size());
-    for (const auto& cp : cart_points) {
-        slt_points.push_back(cartesian_to_slt(cp));
-    }
-    return slt_points;
-}
-
-TrajectoryPoint FrenetFrame::slt_to_cartesian(const SLTPoint& slt_point) const {
-    // 首先转换为 Frenet 坐标
-    FrenetPoint fp;
-    fp.s = slt_point.s;
-    fp.l = slt_point.l;
-    fp.s_dot = slt_point.s_dot;
-    fp.l_dot = slt_point.l_dot;
-    fp.s_dot_dot = slt_point.s_dot_dot;
-    fp.l_dot_dot = slt_point.l_dot_dot;
-    
-    // 转换为笛卡尔坐标
-    TrajectoryPoint tp = frenet_to_cartesian(fp);
-    tp.time_stamped = slt_point.t;
-    
-    return tp;
-}
-
-std::vector<TrajectoryPoint> FrenetFrame::slt_to_cartesian(const std::vector<SLTPoint>& slt_points) const {
-    std::vector<TrajectoryPoint> cart_points;
-    cart_points.reserve(slt_points.size());
-    for (const auto& sp : slt_points) {
-        cart_points.push_back(slt_to_cartesian(sp));
-    }
-    return cart_points;
-}
-
-// ==================== SLT 障碍物投影实现 ====================
-
-std::vector<SLTPoint> FrenetFrame::project_obstacle_to_slt(const Obstacle& obstacle, double current_time) const {
-    // 静态障碍物投影到 SLT 空间（时间固定为 current_time）
-    std::vector<FrenetPoint> frenet_points = project_obstacle_to_frenet(obstacle);
-    std::vector<SLTPoint> slt_points;
-    slt_points.reserve(frenet_points.size());
-    
-    for (const auto& fp : frenet_points) {
-        SLTPoint sp;
-        sp.s = fp.s;
-        sp.l = fp.l;
-        sp.t = current_time;
-        sp.s_dot = 0.0; // 静态障碍物速度为0
-        sp.l_dot = 0.0;
-        sp.s_dot_dot = 0.0;
-        sp.l_dot_dot = 0.0;
-        slt_points.push_back(sp);
-    }
-    return slt_points;
-}
-
-std::vector<SLTPoint> FrenetFrame::project_dynamic_obstacle_to_slt(const Obstacle& obstacle) const {
-    // 动态障碍物投影到 SLT 空间（考虑时间轨迹）
-    std::vector<FrenetPoint> frenet_points = project_dynamic_obstacle_to_frenet(obstacle);
-    std::vector<SLTPoint> slt_points;
-    slt_points.reserve(frenet_points.size());
-    
-    // 这里需要根据障碍物的预测轨迹来设置时间
-    // 暂时使用简单的线性时间假设
-    double time_step = 0.1; // 100ms 时间步长
-    for (size_t i = 0; i < frenet_points.size(); ++i) {
-        SLTPoint sp;
-        sp.s = frenet_points[i].s;
-        sp.l = frenet_points[i].l;
-        sp.t = i * time_step; // 简化假设
-        sp.s_dot = frenet_points[i].s_dot;
-        sp.l_dot = frenet_points[i].l_dot;
-        sp.s_dot_dot = frenet_points[i].s_dot_dot;
-        sp.l_dot_dot = frenet_points[i].l_dot_dot;
-        slt_points.push_back(sp);
-    }
-    return slt_points;
-}
-
-// ==================== 基于时间的 SLT 查询实现 ====================
-
-SLTPoint FrenetFrame::get_slt_at_time(double time) const {
-    if (_trajectory_points.empty()) {
-        throw std::runtime_error("No trajectory points available for time-based query");
-    }
-    
-    // 找到时间最接近的轨迹点
-    auto it = std::lower_bound(_trajectory_points.begin(), _trajectory_points.end(), time,
-        [](const TrajectoryPoint& tp, double t) { return tp.time_stamped < t; });
-    
-    if (it == _trajectory_points.begin()) {
-        return cartesian_to_slt(*it);
-    } else if (it == _trajectory_points.end()) {
-        return cartesian_to_slt(_trajectory_points.back());
-    } else {
-        // 线性插值
-        const TrajectoryPoint& p0 = *(it - 1);
-        const TrajectoryPoint& p1 = *it;
-        double t_ratio = (time - p0.time_stamped) / (p1.time_stamped - p0.time_stamped);
-        
-        TrajectoryPoint interp;
-        interp.x = p0.x + t_ratio * (p1.x - p0.x);
-        interp.y = p0.y + t_ratio * (p1.y - p0.y);
-        interp.heading = p0.heading + t_ratio * (p1.heading - p0.heading);
-        interp.v = p0.v + t_ratio * (p1.v - p0.v);
-        interp.time_stamped = time;
-        
-        return cartesian_to_slt(interp);
-    }
-}
-
-std::vector<SLTPoint> FrenetFrame::get_slt_trajectory(double start_time, double end_time, double dt) const {
-    std::vector<SLTPoint> trajectory;
-    for (double t = start_time; t <= end_time; t += dt) {
-        trajectory.push_back(get_slt_at_time(t));
-    }
-    return trajectory;
-}
-
-double FrenetFrame::get_trajectory_start_time() const {
-    if (_trajectory_points.empty()) return 0.0;
-    return _trajectory_points.front().time_stamped;
-}
-
-double FrenetFrame::get_trajectory_end_time() const {
-    if (_trajectory_points.empty()) return 0.0;
-    return _trajectory_points.back().time_stamped;
-}
-
-bool FrenetFrame::is_time_in_trajectory(double time) const {
-    if (_trajectory_points.empty()) return false;
-    return time >= get_trajectory_start_time() && time <= get_trajectory_end_time();
-}
-
-// ==================== SLT 障碍物创建实现 ====================
-
-SLTObstacle FrenetFrame::create_slt_obstacle(const Obstacle& obstacle, double current_time) const {
-    std::vector<SLTPoint> slt_points = project_obstacle_to_slt(obstacle, current_time);
-    return SLTObstacle(slt_points, 0.5); // 使用默认安全边距
-}
-
-std::vector<SLTObstacle> FrenetFrame::create_slt_obstacles(const std::vector<Obstacle>& obstacles, double current_time) const {
-    std::vector<SLTObstacle> slt_obstacles;
-    slt_obstacles.reserve(obstacles.size());
-    for (const auto& obs : obstacles) {
-        slt_obstacles.push_back(create_slt_obstacle(obs, current_time));
-    }
-    return slt_obstacles;
 }
 
 } // namespace general

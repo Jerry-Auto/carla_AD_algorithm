@@ -52,7 +52,7 @@ public:
     void set_log_enable(bool enable) override;
     
     // 获取历史轨迹
-    const std::vector<general::TrajectoryPoint>& getLastTrajectory() const { return trajectory_manager_->getPreTrajectory(); }
+    const std::vector<general::TrajectoryPoint>& getLastTrajectory() const { return trajectory_manager_->getPreviousTrajectory(); }
 
 private:
     // 规划器使用的全局Frenet坐标系
@@ -60,7 +60,7 @@ private:
 
     // 生成轨迹 - 修正：返回向量而不是通过参数
     std::vector<general::TrajectoryPoint> generateTrajectory(
-        const std::vector<general::STPoint>& speed_profile,
+        const std::vector<general::FrenetPoint>& speed_profile,
         const std::vector<general::TrajectoryPoint>& path_trajectory,
         double start_time);
 

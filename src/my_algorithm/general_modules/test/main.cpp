@@ -1,3 +1,5 @@
+/* Copyright 2025 <Your Name> */
+
 #include <iostream>
 #include <vector>
 #include <cmath>
@@ -25,7 +27,8 @@ std::vector<TrajectoryPoint> generateFinalTraj();
 std::vector<std::vector<TrajectoryPoint>> generateSampleTrajs(); 
 
 int main(int argc, char ** argv) {
-    test_visualize(argc,argv);
+    // test_visualize(argc,argv);
+    test_frenet_frame();
     return 0;
 }
 std::vector<Obstacle> generateObstacles() {

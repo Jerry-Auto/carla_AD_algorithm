@@ -41,15 +41,20 @@ namespace general {
         // 更新最近一次使用的自车状态
         void updateEgoState(const std::shared_ptr<VehicleState>& ego_state);
 
-        // 路径QP结果合理性检验
+        // 横向路径结果合理性检验
         bool isPathValid(
             const FrenetFrame& path_trajectory,
             std::string* reason = nullptr,
             size_t min_points = 5) const;
 
-        // 速度QP结果合理性检验
+        bool isPathValid(
+            const std::vector<TrajectoryPoint>& path_trajectory,
+            std::string* reason,
+            size_t min_points) const;
+
+        // 纵向速度结果合理性检验
         bool isSpeedProfileValid(
-            const std::vector<STPoint>& speed_profile,
+            const std::vector<FrenetPoint>& speed_profile,
             std::string* reason = nullptr,
             size_t min_points = 5) const;
 
@@ -59,6 +64,20 @@ namespace general {
             const std::vector<TrajectoryPoint>& trajectory,
             std::string* reason = nullptr,
             size_t min_points = 5);
+
+        // Tunable limits used by validity checks (defaults are conservative)
+        void setLimits(double max_speed, double max_acc, double max_curvature, double max_jerk);
+        void getLimits(double& max_speed, double& max_acc, double& max_curvature, double& max_jerk) const;
+
+        // 获取上一周期的轨迹（供上层读取历史轨迹）
+        const std::vector<TrajectoryPoint>& getPreviousTrajectory() const { return previous_trajectory_; }
+
+    private:
+        // limits
+        double max_speed_ = 100.0;
+        double max_acc_ = 50.0;
+        double max_curvature_ = 10.0;
+        double max_jerk_ = 50.0;
 
 
         // 获取拼接轨迹
@@ -88,7 +107,7 @@ namespace general {
         std::vector<TrajectoryPoint> stitch_trajectory_;
         bool is_first_run_ = true;
         double current_time_ = 0.0;
-        int _pre_pnt_num = 500; // 拼接上一周期的点的数量
+        int _pre_pnt_num = 100; // 拼接上一周期的点的数量
 
         VehicleState latest_ego_state_;
         bool has_latest_ego_state_ = false;

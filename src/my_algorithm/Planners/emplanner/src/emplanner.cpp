@@ -13,12 +13,17 @@ EMPlanner::EMPlanner() : PlannerBase("EMPlanner") {
     weights_=WeightCoefficients();
 
     // 初始化管理器，共享同一个 logger
+    SpeedPlannerConfig speed_planner_config;
     trajectory_manager_ = std::make_unique<TrajectoryManager>(logger_);
+    trajectory_manager_->setLimits(speed_planner_config.max_speed,
+                        speed_planner_config.max_acceleration,
+                        speed_planner_config.max_curvature,
+                        speed_planner_config.max_jerk);
     
     // 初始化规划器，共享同一个 logger
     path_planner_ = std::make_unique<PathPlanner>(weights_, PathPlannerConfig(), logger_);
     
-    speed_planner_ = std::make_unique<SpeedPlanner>(weights_, SpeedPlannerConfig(), logger_);
+    speed_planner_ = std::make_unique<SpeedPlanner>(weights_,speed_planner_config, logger_);
     
     log("INFO", "EMPlanner initialized");
 }
@@ -150,7 +155,7 @@ std::vector<TrajectoryPoint> EMPlanner::plan(
     }
 
     const size_t kMaxSpeedRetry = 3;
-    std::vector<STPoint> speed_profile;
+    std::vector<FrenetPoint> speed_profile;
     std::string speed_invalid_reason;
     bool speed_valid = false;
 
@@ -206,7 +211,7 @@ std::vector<TrajectoryPoint> EMPlanner::plan(
 // 最后将两个东西合并起来，路径是没有时间的，但是速度规划结果st有时间
 // 合并的时候以ST即速度规划为序列，在这个序列上加上位置(对应的路径信息)
 std::vector<TrajectoryPoint> EMPlanner::generateTrajectory(
-    const std::vector<STPoint>& speed_profile,
+    const std::vector<FrenetPoint>& speed_profile,
     const std::vector<TrajectoryPoint>& path_trajectory,
     double start_time) 
 {

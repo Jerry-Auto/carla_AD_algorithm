@@ -4,15 +4,20 @@
 namespace AD_algorithm {
 namespace planner {
 
-latticeCollisionDetection::latticeCollisionDetection(const std::vector<Obstacle>& detected_objects,
-                     const double& collision_distance,
-                     const std::vector<PathPoint>& ref_path) : 
-                     collision_dis_(collision_distance),
-                     detected_objects_(detected_objects), 
-                     ref_path_(ref_path) {
+latticeCollisionDetection::latticeCollisionDetection() : collision_dis_(1.0) {
+    // 默认构造不填充障碍物，使用 Update(...) 在每个规划周期填入最新数据
+    detected_objects_.clear();
     static_obstacle_list_.clear();
     dynamic_obstacle_list_.clear();
-    ObstacleClassification(this->detected_objects_);
+    ref_path_.clear();
+}
+
+latticeCollisionDetection::latticeCollisionDetection(const std::vector<Obstacle>& detected_objects,
+                     const double& collision_distance,
+                     const std::vector<PathPoint>& ref_path) : latticeCollisionDetection() {
+    // 委托给默认构造，然后使用 Update 保持逻辑一致（建议周期性调用 Update）
+    collision_dis_ = collision_distance;
+    Update(detected_objects, ref_path);
 }
 
 void latticeCollisionDetection::Update(const std::vector<Obstacle>& detected_objects,
@@ -25,8 +30,8 @@ void latticeCollisionDetection::Update(const std::vector<Obstacle>& detected_obj
 }
 
 void latticeCollisionDetection::CalCollisionBox(Obstacle& object) {
-  // Obstacle in general_modules already has length, width, heading, x, y.
-  // We don't need to manually calculate box points if we use general::CollisionDetection::get_bounding_box
+  // general_modules 中的 Obstacle 已包含 length, width, heading, x, y。
+  // 若使用 general::CollisionDetection::get_bounding_box，则无需手动计算包围盒点
   (void)object;
 }
 
@@ -51,6 +56,18 @@ bool latticeCollisionDetection::IsCollision(latticeFrenetPath& path,
     }
   }
   return false; 
+}
+
+bool latticeCollisionDetection::InCollision(const std::vector<AD_algorithm::general::TrajectoryPoint>& trajectory) const {
+  for (const auto& tp : trajectory) {
+    AD_algorithm::general::Vec2d pt(tp.x, tp.y);
+    for (const auto& obs : detected_objects_) {
+      auto box = AD_algorithm::general::CollisionDetection::get_bounding_box(std::make_shared<Obstacle>(obs));
+      double dist = AD_algorithm::general::CollisionDetection::distance_to(box, pt);
+      if (dist <= collision_dis_) return true;
+    }
+  }
+  return false;
 }
 
 void latticeCollisionDetection::ObstacleClassification(

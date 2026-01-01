@@ -1,4 +1,6 @@
-#include "general_modules/visualization_tool.h"
+/* Copyright 2025 <Your Name> */
+
+#include "general_modules/visualization_tool.h" 
 
 namespace AD_algorithm {
 namespace general {

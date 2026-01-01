@@ -1,5 +1,5 @@
-#ifndef PLANNER_WEIGHTS_H
-#define PLANNER_WEIGHTS_H
+#ifndef EMPLANNER_PLANNER_WEIGHTS_H
+#define EMPLANNER_PLANNER_WEIGHTS_H
 
 namespace AD_algorithm {
 namespace planner {
@@ -49,9 +49,9 @@ struct PathPlannerConfig {
     int s_sample_number = 20;          // s方向采样层数
     int dp_poly_pnt_num = 5;           // DP两点间多项式拟合点数
 
-    int l_sample_number = 15;          // l方向采样点数,应为奇数
+    int l_sample_number = 13;          // l方向采样点数,应为奇数
 
-    double lane_width = 5.0;          // 车道宽度
+    double lane_width = 10.0;          // 车道宽度
     double car_width = 2.0;          // 车辆宽度
 
     double qp_dense_path_interval=1.0;  // QP规划输入点间隔，两个点之间的距离
@@ -87,8 +87,10 @@ struct SpeedPlannerConfig {
     double final_path_interval = 0.02;  // 最终路径点密度间隔，两个点之间的距离
  
     double max_lateral_acc = 1.5 * 9.8; // 最大横向加速度，直接影响过弯速度
+    double max_speed = 120.0/3.6;          // 最大速度
     double max_acceleration = 4.0;
     double max_deceleration = -6.0;
+    double max_curvature = 100.0;
     double max_jerk = 10.0;
 
     // 验证配置
@@ -106,4 +108,4 @@ struct SpeedPlannerConfig {
 } // namespace planner
 } // namespace AD_algorithm
 
-#endif // PLANNER_WEIGHTS_H
+#endif // EMPLANNER_PLANNER_WEIGHTS_H

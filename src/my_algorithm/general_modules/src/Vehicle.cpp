@@ -1,9 +1,11 @@
+/* Copyright 2025 <Your Name> */
+
 #include "general_modules/Vehicle.h"
 #include <cmath>
 #include <stdexcept>
 #include <iostream>
 #include <fstream>
-#include <algorithm>
+#include <algorithm> 
 
 namespace AD_algorithm {
 namespace general {
