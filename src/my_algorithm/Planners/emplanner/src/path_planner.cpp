@@ -201,7 +201,14 @@ std::vector<TrajectoryPoint> PathPlanner::planPath(
     // 最近障碍物决策锁定：在调用 generateConvexSpace() 前更新锁定状态
     updateNearestObsDecision(offset_s, static_obstacles, local_static_obstacles);
 
+    // 记录当前偏移量，方便外部查询（例如用于将局部 s 转回全局 s）
+    last_offset_s_ = offset_s;
+
     generateConvexSpace(local_static_obstacles, l_min, l_max);
+
+    // 存储最近一次生成的凸空间边界，供外部查询
+    last_l_min_ = l_min;
+    last_l_max_ = l_max;
     
     // 3. QP路径优化
     log("INFO", "Running QP path optimization...");

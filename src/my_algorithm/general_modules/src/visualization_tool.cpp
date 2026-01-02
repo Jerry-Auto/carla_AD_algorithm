@@ -10,6 +10,8 @@ VisualizationTool::VisualizationTool(const std::string & node_name)
 : Node(node_name) {
     ref_path_pub_ = this->create_publisher<nav_msgs::msg::Path>("/reference_line/ref_path", 10);
     final_path_pub_ = this->create_publisher<nav_msgs::msg::Path>("/planning/final_trajectory", 10);
+    // 新增：用于带颜色的 final path
+    final_path_marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("/planning/final_trajectory_marker", 10);
     sample_paths_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("/planning/sample_trajectories", 10);
     history_paths_pub_ = this->create_publisher<nav_msgs::msg::Path>("/planning/history_trajectories", 10);
     obstacle_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("/planning/obstacles", 10); // 新增
@@ -67,9 +69,61 @@ void VisualizationTool::RefPathVisualization(const std::vector<PathPoint>& ref_p
 }
 
 void VisualizationTool::FinalPathVisualization(const std::vector<TrajectoryPoint>& trajectory) {
-    if (trajectory.empty()) return;
-    auto path_msg = toNavPath(trajectory);
-    final_path_pub_->publish(path_msg);
+    // 发布标准的 Path（兼容旧订阅者）
+    if (!trajectory.empty()) {
+        auto path_msg = toNavPath(trajectory);
+        final_path_pub_->publish(path_msg);
+    } else {
+        // 为空时仍发布空 path 以便清除显示（或选择不发布）
+        nav_msgs::msg::Path empty_path;
+        empty_path.header.frame_id = "map";
+        empty_path.header.stamp = this->now();
+        final_path_pub_->publish(empty_path);
+    }
+
+    // 额外发布带颜色的 Line Marker（绿色，不透明）用于在 RViz 中高亮最终轨迹
+    visualization_msgs::msg::MarkerArray marker_array;
+    visualization_msgs::msg::Marker marker;
+
+    if (trajectory.empty()) {
+        marker.header.frame_id = "map";
+        marker.header.stamp = this->now();
+        marker.ns = "final_trajectory";
+        marker.id = 0;
+        marker.action = visualization_msgs::msg::Marker::DELETEALL;
+        marker_array.markers.push_back(marker);
+        final_path_marker_pub_->publish(marker_array);
+        return;
+    }
+
+    marker.header.frame_id = "map";
+    marker.header.stamp = this->now();
+    marker.ns = "final_trajectory";
+    marker.id = 0;
+    marker.type = visualization_msgs::msg::Marker::LINE_STRIP;
+    marker.action = visualization_msgs::msg::Marker::ADD;
+    marker.scale.x = 0.18;  // 线宽（更粗，增强可见性）
+
+    // 品红（醒目），不透明
+    marker.color.r = 1.0f;
+    marker.color.g = 0.0f;
+    marker.color.b = 0.0f;
+    marker.color.a = 0.0f;
+
+    marker.points.reserve(trajectory.size());
+    for (const auto& pt : trajectory) {
+        geometry_msgs::msg::Point p;
+        p.x = pt.x;
+        p.y = pt.y;
+        p.z = 0.0;
+        marker.points.push_back(p);
+    }
+
+    // 生命周期设置为略大于规划周期（例如0.5s），确保显示稳定
+    marker.lifetime = rclcpp::Duration::from_seconds(0.5);
+
+    marker_array.markers.push_back(marker);
+    final_path_marker_pub_->publish(marker_array);
 }
 
 void VisualizationTool::SamplePathsVisualization(

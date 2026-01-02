@@ -151,7 +151,7 @@ void visualize(
         cx.reserve(cand.size()); cy.reserve(cand.size());
         for (const auto& p : cand) { cx.push_back(p.x); cy.push_back(p.y); }
         // 画成浅灰色以便与最终轨迹区分
-        plt::plot(cx, cy, {{"color", "lightgray"}, {"linewidth", "0.8"}});
+        plt::plot(cx, cy, {{"color", "gray"}, {"linewidth", "0.8"}});
     }
 
     // 3. 绘制规划轨迹
@@ -178,7 +178,7 @@ void visualize(
     plt::axis("equal");
     plt::grid(true);
     plt::xlim(ego.x - 30.0, ego.x + 100.0);
-    plt::ylim(ego.y - 20.0, ego.y + 20.0);
+    plt::ylim(ego.y - 20.0, ego.y + 80.0);
 
     plt::pause(0.001);
 }
@@ -192,20 +192,12 @@ int main() {
     latticePlanner planner;
 
     PlannerParams params;
-    params.sampling.sample_max_time = 8.0;
-    params.sampling.sample_min_time = 3.0;
+    params.sampling.sample_max_time = 5.0;
+    params.sampling.sample_min_time = 2.0;
     params.sampling.sample_time_step = 0.5;
-    params.sampling.sample_lat_width = 5.0;
-    params.sampling.sample_width_length = 1.0;
-    params.sampling.sample_space_resolution = 0.5;
-    params.cruise_speed = 4.0;
-    params.weights.weight_st_object = 1.0;
-    params.weights.weight_st_jerk = 1.0;
-    params.weights.weight_lt_offset = 1.0;
-    params.limits.max_speed = 25.0;
-    params.limits.max_acc = 5.0;
-    params.limits.max_jerk = 50.0;
-    params.limits.max_curvature = 1000.0;
+
+    params.sampling.sample_lat_width = 20.0;
+    params.sampling.sample_width_length = 2.0;
 
     planner.setPlannerParams(params);
 
@@ -238,7 +230,7 @@ int main() {
         general::Obstacle obs_right; obs_right.id = 105; obs_right.x = 150.0; obs_right.y = -2.0; obs_right.vx = 0.0; obs_right.vy = 0.0; obs_right.length = 4.5; obs_right.width = 2.0; obstacles.push_back(obs_right);
     }
 
-    double reference_speed = 4.0;
+    double reference_speed = 8.0;
     double current_time = 0.0;
 
     // 4. 首次规划
@@ -255,10 +247,10 @@ int main() {
         try {
             // Try to fetch cached lateral candidates from planner and plot them
             const auto& lateral_candidates = planner.GetAllLateralCandidatesCartesian();
-            visualize(reference_path, obstacles, trajectory, *ego, lateral_candidates);
+            // visualize(reference_path, obstacles, trajectory, *ego, lateral_candidates);
         } catch (const std::exception& e) {
             std::cerr << "Warning: lateral candidate visualization failed: " << e.what() << std::endl;
-            visualize(reference_path, obstacles, trajectory, *ego);
+            // visualize(reference_path, obstacles, trajectory, *ego);
         }
     } else {
         std::cout << "Initial planning failed." << std::endl;
@@ -272,7 +264,7 @@ int main() {
     std::normal_distribution<double> speed_noise(0.0, 0.2);
     std::normal_distribution<double> heading_noise(0.0, 0.03);
 
-    const int total_cycles = 250;
+    const int total_cycles = 500;
     for (int cycle = 1; cycle <= total_cycles; ++cycle) {
         double dt_cycle = 0.2;
         double target_time = current_time + dt_cycle;
@@ -313,14 +305,14 @@ int main() {
             break;
         }
 
-        if (cycle % 1 == 0) {
+        if (cycle % 2 == 0) {
             std::cout << "Cycle " << cycle << ": trajectory size=" << trajectory.size() << std::endl;
             try {
                 const auto& lateral_candidates = planner.GetAllLateralCandidatesCartesian();
                 visualize(reference_path, obstacles, trajectory, *ego, lateral_candidates);
             } catch (const std::exception& e) {
                 std::cerr << "Warning: lateral candidate visualization failed in cycle " << cycle << ": " << e.what() << std::endl;
-                visualize(reference_path, obstacles, trajectory, *ego);
+                // visualize(reference_path, obstacles, trajectory, *ego);
             }
         }
     }

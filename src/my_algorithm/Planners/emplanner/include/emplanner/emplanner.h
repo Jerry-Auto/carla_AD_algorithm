@@ -51,6 +51,8 @@ public:
     // 日志设置
     void set_log_enable(bool enable) override;
     
+    std::vector<std::vector<general::TrajectoryPoint>> GetExtralTraj() override;
+
     // 获取历史轨迹
     const std::vector<general::TrajectoryPoint>& getLastTrajectory() const { return trajectory_manager_->getPreviousTrajectory(); }
 

@@ -68,6 +68,59 @@ bool EMPlanner::isTrajectoryValid(
     return trajectory_manager_->isTrajectoryValid(trajectory, reason, min_points);
 }
 
+std::vector<std::vector<general::TrajectoryPoint>> EMPlanner::GetExtralTraj() {
+    std::vector<std::vector<general::TrajectoryPoint>> result;
+    // 检查必要对象
+    if (!path_planner_) {
+        log("WARN", "GetExtralTraj: path_planner_ is null");
+        return result;
+    }
+    if (!global_frenet_frame_) {
+        log("WARN", "GetExtralTraj: global_frenet_frame_ is null");
+        return result;
+    }
+
+    const auto& dp_path = path_planner_->getDPPath();
+    if (dp_path.empty()) {
+        log("INFO", "GetExtralTraj: dp_path is empty");
+        return result;
+    }
+
+    std::vector<double> l_min, l_max;
+    path_planner_->getLastConvexBounds(l_min, l_max);
+
+    if (l_min.size() != dp_path.size() || l_max.size() != dp_path.size()) {
+        log("WARN", "GetExtralTraj: convex bounds size mismatch with dp_path");
+        return result;
+    }
+    double offset_s = path_planner_->getLastOffsetS();
+
+    // 构造左/右边界的 Frenet 点
+    std::vector<general::FrenetPoint> left_fp, right_fp;
+    left_fp.reserve(dp_path.size());
+    right_fp.reserve(dp_path.size());
+
+    for (size_t i = 0; i < dp_path.size(); ++i) {
+        general::FrenetPoint lp = dp_path[i];
+        general::FrenetPoint rp = dp_path[i];
+        lp.s += offset_s;
+        rp.s += offset_s;
+        // l_max 对应左侧上界，l_min 对应右侧下界
+        lp.l = l_max[i];
+        rp.l = l_min[i];
+        left_fp.push_back(lp);
+        right_fp.push_back(rp);
+    }
+
+    // 转换到笛卡尔坐标系
+    auto left_traj = global_frenet_frame_->frenet_to_cartesian(left_fp);
+    auto right_traj = global_frenet_frame_->frenet_to_cartesian(right_fp);
+
+    result.emplace_back(std::move(left_traj));
+    result.emplace_back(std::move(right_traj));
+    return result;
+}
+
 std::vector<TrajectoryPoint> EMPlanner::plan(
     const std::shared_ptr<VehicleState>& ego_state,
     const std::vector<Obstacle>& obstacles,

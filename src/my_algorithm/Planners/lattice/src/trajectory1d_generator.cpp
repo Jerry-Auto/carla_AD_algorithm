@@ -6,24 +6,19 @@
 namespace AD_algorithm {
 namespace planner {
 
-Trajectory1DGenerator::Trajectory1DGenerator(const PlannerParams& params) {
-  cruise_speed_ = params.cruise_speed;
-  sample_max_time_ = params.sampling.sample_max_time;
-  sample_min_time_ = params.sampling.sample_min_time;
-  sample_time_step_ = params.sampling.sample_time_step;
-  sample_lat_width_ = params.sampling.sample_lat_width;
-  sample_width_length_ = params.sampling.sample_width_length;
-}
+Trajectory1DGenerator::Trajectory1DGenerator(const PlannerParams& params) : params_(params) {}
 
-std::vector<Trajectory1DGenerator::LonCandidate>
-Trajectory1DGenerator::GenerateLongitudinalCruising(const latticeFrenetPoint& init) const {
+std::vector<LonCandidate>
+Trajectory1DGenerator::GenerateLongitudinalCruising(const latticeFrenetPoint& init, double reference_speed) const {
   std::vector<LonCandidate> candidates;
-  for (double T = sample_min_time_; T <= sample_max_time_; T += sample_time_step_) {
+  for (double T = params_.sampling.sample_min_time; T <= params_.sampling.sample_max_time; T += params_.sampling.sample_time_step) {
     auto st_polynomial = std::make_shared<AD_algorithm::general::PolynomialCurve>();
     // 巡航情形：不强制终点 s，而是约束终点速度（四次多项式），更自然地表达“到达目标速度”的目标
+    double target_v = reference_speed;
     bool ok = st_polynomial->curve_fitting(
         0.0, init.s, init.s_dot, 0.0,
-        T, cruise_speed_, 0.0);    if (!ok) continue;
+        T, target_v, 0.0);
+    if (!ok) continue;
     LonCandidate c;
     c.curve = st_polynomial;
     c.T = T;
@@ -32,15 +27,20 @@ Trajectory1DGenerator::GenerateLongitudinalCruising(const latticeFrenetPoint& in
   return candidates;
 }
 
-std::vector<Trajectory1DGenerator::LonCandidate>
+std::vector<LonCandidate>
 Trajectory1DGenerator::GenerateLongitudinalFollowing(const latticeFrenetPoint& init,
-                                                      const latticeFrenetPoint& leader) const {
+                                                    const latticeFrenetPoint& leader,
+                                                    double reference_speed) const {
   std::vector<LonCandidate> candidates;
-  for (double T = sample_min_time_; T <= sample_max_time_; T += sample_time_step_) {
+  for (double T = params_.sampling.sample_min_time; T <= params_.sampling.sample_max_time; T += params_.sampling.sample_time_step) {
     auto st_polynomial = std::make_shared<AD_algorithm::general::PolynomialCurve>();
     // 结束 s 取为 leader.s 减去缓冲距离（用于保持安全跟车距离）
     double target_s = leader.s - 8.0;
-    double target_v = std::min(cruise_speed_, leader.v);
+    // 防止目标 s 为负，导致向后运动的速度曲线
+    if (target_s < 0.0) {
+      target_s = 0.0;
+    }
+    double target_v = std::min(reference_speed, leader.v);
     bool ok = st_polynomial->curve_fitting(
         0.0, init.s, init.s_dot, 0.0,
         T, target_s, target_v, 0.0);
@@ -53,16 +53,16 @@ Trajectory1DGenerator::GenerateLongitudinalFollowing(const latticeFrenetPoint& i
   return candidates;
 }
 
-std::vector<Trajectory1DGenerator::LatCandidate>
-Trajectory1DGenerator::GenerateLateralCandidates(const latticeFrenetPoint& init, double T) const {
+std::vector<LatCandidate>
+Trajectory1DGenerator::GenerateLateralCandidates(const latticeFrenetPoint& init, double T, double reference_speed) const {
   std::vector<LatCandidate> candidates;
   // 参考 Apollo 的实现：横向曲线以纵向弧长 s 为参数（d(s)），因此在若干 end_s 候选上采样
   std::vector<double> end_s_candidates = {10.0, 20.0, 40.0, 80.0};
-  // 同时加入基于预计巡航速度的估计终点 s
-  double est_end_s = cruise_speed_ * T;
+  // 同时加入基于参考速度的估计终点 s（使用传入的 reference_speed）
+  double est_end_s = reference_speed * T;
 
   auto sample_for_end_s = [&](double end_s) {
-    for (double l = -sample_lat_width_; l <= sample_lat_width_; l += sample_width_length_) {
+    for (double l = -params_.sampling.sample_lat_width; l <= params_.sampling.sample_lat_width; l += params_.sampling.sample_width_length) {
       auto lt_polynomial = std::make_shared<AD_algorithm::general::PolynomialCurve>();
       // 注意：横向多项式以 s 为自变量，初始空间导数直接使用 init 中的 l_prime / l_prime_prime
       double l_prime = init.l_prime;

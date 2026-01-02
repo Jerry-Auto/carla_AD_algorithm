@@ -24,42 +24,23 @@ namespace planner {
  */
 class Trajectory1DGenerator {
  public:
-  /**
-   * LonCandidate
-   * - curve: 映射时间到s的多项式
-   * - T: 候选轨迹的持续时间
-   */
-  struct LonCandidate {
-    std::shared_ptr<AD_algorithm::general::PolynomialCurve> curve;
-    double T = 0.0; // 持续时间
-  };
-
-  struct LatCandidate {
-    std::shared_ptr<AD_algorithm::general::PolynomialCurve> curve;
-    double T = 0.0; // 与纵向候选匹配的持续时间
-    double param_s = 0.0; // 横向多项式的参数长度（近似）
-  };
 
   Trajectory1DGenerator() = delete;
   explicit Trajectory1DGenerator(const PlannerParams& params);
 
   // 纵向候选（巡航）：无严格终点位置
-  std::vector<LonCandidate> GenerateLongitudinalCruising(const latticeFrenetPoint& init) const;
-  // 纵向候选（跟车）：终点接近 leader.s（带缓冲）
+  // 纵向候选（巡航）：无严格终点位置，依照参考速度生成终点速度约束
+  std::vector<LonCandidate> GenerateLongitudinalCruising(const latticeFrenetPoint& init, double reference_speed) const;
+  // 纵向候选（跟车）：终点接近 leader.s（带缓冲），使用参考速度作为速度上限
   std::vector<LonCandidate> GenerateLongitudinalFollowing(const latticeFrenetPoint& init,
-                                                           const latticeFrenetPoint& leader) const;
+                                                           const latticeFrenetPoint& leader,
+                                                           double reference_speed) const;
 
   // 横向候选：横向曲线以纵向弧长 s 为参数（d(s)），在若干 end_s 候选与横偏采样组合生成候选集
-  std::vector<LatCandidate> GenerateLateralCandidates(const latticeFrenetPoint& init, double T) const;
+  std::vector<LatCandidate> GenerateLateralCandidates(const latticeFrenetPoint& init, double T, double reference_speed) const;
 
- private:
-  // 采样参数（与 lattice_planner 的风格一致）
-  double sample_max_time_;
-  double sample_min_time_;
-  double sample_time_step_;
-  double sample_lat_width_;
-  double sample_width_length_;
-  double cruise_speed_;
+private:
+  PlannerParams params_;
 };
 
 } // namespace planner

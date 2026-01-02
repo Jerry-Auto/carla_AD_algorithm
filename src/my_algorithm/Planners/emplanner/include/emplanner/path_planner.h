@@ -49,6 +49,15 @@ public:
     const std::vector<general::FrenetPoint>& getQPPath() const { return qp_path_; }
     const std::vector<general::TrajectoryPoint>& getTrajectory() const { return trajectory_; }
 
+    // 获取最近一次生成的凸空间边界（返回与 getDPPath() 同长度的 l_min / l_max）
+    void getLastConvexBounds(std::vector<double>& l_min, std::vector<double>& l_max) const {
+        l_min = last_l_min_;
+        l_max = last_l_max_;
+    }
+
+    // 获取最近一次 planPath 时用于 s 偏移的值（用于把局部 s 转回全局 s）
+    double getLastOffsetS() const { return last_offset_s_; }
+
 private:
     template<typename... Args>
     void log(Args&&... args) const {
@@ -98,6 +107,12 @@ private:
     std::vector<double> _road_width_left_vec;
     std::vector<double> _road_width_right_vec;
     double _road_width_resolution = 1.0;
+
+    // 存储最近一次生成的凸空间边界（与 dp_path_ 对齐，s 为相对于规划起点的局部 s）
+    std::vector<double> last_l_min_;
+    std::vector<double> last_l_max_;
+    // 记录最近一次 planPath 调用时的 s 偏移（offset_s），用于将局部 s 转回全局 s
+    double last_offset_s_ = 0.0;
 
     // 最近障碍物的绕行决策锁定：记录近5次对最近障碍物的决策结果，取多数作为最终决策。
     // 一旦决策锁定，在越过该最近障碍物前保持不变，防止决策朝令夕改。

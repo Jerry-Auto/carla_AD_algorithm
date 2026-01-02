@@ -24,7 +24,7 @@ PlanningAgent::PlanningAgent() : Node("planning_agent")
 {
     this->declare_parameter<std::string>("role_name", "ego_vehicle");
     this->get_parameter("role_name", _role_name);
-    this->declare_parameter<std::string>("planner_type", "emplanner");// lattice   emplanner
+    this->declare_parameter<std::string>("planner_type", "lattice");// lattice   emplanner
     this->get_parameter("planner_type", _planner_type);
     this->declare_parameter<bool>("enable_planner_log", true);
     this->get_parameter("enable_planner_log", _enable_planner_log);
@@ -315,9 +315,10 @@ void PlanningAgent::planning_run_step()
     }
     _trajectory_publisher->publish(pub_msg);
 
-
+    auto extral_trajs = _planner->GetExtralTraj();
     _viz_tool->FinalPathVisualization(trajectory); 
     _viz_tool->ObstacleVisualization(objects_copy);
+    _viz_tool->SamplePathsVisualization(extral_trajs);
 
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
@@ -364,6 +365,7 @@ std::vector<general::Obstacle> PlanningAgent::convertToPlannerObstacles(
         double dy = obstacle.y - ego_state->y;
         double distance = std::sqrt(dx * dx + dy * dy);
         if (distance < 100.0) {
+            obstacle.time_stamp = this->now().seconds();
             obstacles.push_back(obstacle);
         }
     }

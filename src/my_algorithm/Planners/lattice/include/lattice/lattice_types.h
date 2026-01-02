@@ -5,6 +5,8 @@
 #include <cmath>
 #include <limits>
 #include "general_modules/common_types.h"
+#include "general_modules/polynomial_curve.h"
+#include "lattice/planner_weights.h"
 
 namespace AD_algorithm {
 namespace planner {
@@ -46,6 +48,35 @@ struct latticeFrenetPath {
   double max_speed = 0.0;
   double max_acc = 0.0;
   double max_curvature = 0.0;
+};
+
+/**
+ * LonCandidate
+ * - curve: 映射时间到s的多项式
+ * - T: 候选轨迹的持续时间
+ */
+struct LonCandidate {
+  std::shared_ptr<AD_algorithm::general::PolynomialCurve> curve;
+  double T = 0.0; // 持续时间
+};
+
+struct LatCandidate {
+  std::shared_ptr<AD_algorithm::general::PolynomialCurve> curve;
+  double T = 0.0; // 与纵向候选匹配的持续时间
+  double param_s = 0.0; // 横向多项式的参数长度（近似）
+};
+
+struct CandidatePair {
+  std::shared_ptr<LonCandidate> lon;
+  std::shared_ptr<LatCandidate> lat;
+  double cost = 0.0;
+};
+
+class CmpPair {
+ public:
+  bool operator()(const CandidatePair& a, const CandidatePair& b) const {
+    return a.cost > b.cost;
+  }
 };
 
 } // namespace planner

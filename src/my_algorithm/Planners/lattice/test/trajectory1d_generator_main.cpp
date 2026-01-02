@@ -16,13 +16,13 @@ int main() {
   init.s = 0.0; init.s_dot = 0.0; init.s_dot_dot = 0.0;
   init.l = 0.0; init.l_dot = 0.0; init.l_dot_dot = 0.0;
 
-  auto lon = gen.GenerateLongitudinalCruising(init);
+  auto lon = gen.GenerateLongitudinalCruising(init, params.cruise_speed);
   if (lon.empty()) {
     std::cerr << "Longitudinal cruising generation failed\n";
     return 1;
   }
 
-  auto lat = gen.GenerateLateralCandidates(init, 2.0);
+  auto lat = gen.GenerateLateralCandidates(init, 2.0, params.cruise_speed);
   if (lat.empty()) {
     std::cerr << "Lateral generation failed\n";
     return 1;

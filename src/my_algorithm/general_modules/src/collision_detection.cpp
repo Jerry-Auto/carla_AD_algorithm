@@ -335,30 +335,23 @@ bool CollisionDetection::segments_intersect(const std::shared_ptr<LineSegment2d>
             ((cp3 > kMathEpsilon && cp4 < -kMathEpsilon) || (cp3 < -kMathEpsilon && cp4 > kMathEpsilon)));
 }
 
-std::shared_ptr<Polygon2d> CollisionDetection::get_bounding_box(const std::shared_ptr<VehicleState> &vehicle_state, double length, double width, double back_to_center) {
-  double shift_distance = length / 2.0 - back_to_center;
-  double cos_heading = std::cos(vehicle_state->heading);
-  double sin_heading = std::sin(vehicle_state->heading);
-  Vec2d center{vehicle_state->x + shift_distance * cos_heading, vehicle_state->y + shift_distance * sin_heading};
-  return std::make_shared<Box2d>(center, length, width, vehicle_state->heading);
-}
-
-std::shared_ptr<Polygon2d> CollisionDetection::get_bounding_box(const std::shared_ptr<Obstacle> &obstacle) {
-    return get_bounding_box(Vec2d{obstacle->x, obstacle->y}, obstacle->length, obstacle->width, obstacle->heading);
+std::shared_ptr<Polygon2d> CollisionDetection::get_bounding_box(const Obstacle &obstacle) {
+    return get_bounding_box(Vec2d{obstacle.x, obstacle.y}, obstacle.length, obstacle.width, obstacle.heading);
 }
 
 std::shared_ptr<Polygon2d> CollisionDetection::get_bounding_box(const Vec2d &center, double length, double width, double heading) {
     return std::make_shared<Box2d>(center, length, width, heading);
 }
 
-std::shared_ptr<Polygon2d> CollisionDetection::get_bounding_box(const std::shared_ptr<VehicleParams> &vehicle_params, double x, double y, double heading) {
-    double length = vehicle_params->lf + vehicle_params->lr;
-    double width = vehicle_params->width;
-    double shift_distance = length / 2.0 - vehicle_params->lr;
-    double cos_heading = std::cos(heading);
-    double sin_heading = std::sin(heading);
-    Vec2d center{x + shift_distance * cos_heading, y + shift_distance * sin_heading};
-    return get_bounding_box(center, length, width, heading);
+std::shared_ptr<Polygon2d> CollisionDetection::get_bounding_box(const TrajectoryPoint &trj_point,const VehicleParams &vehicle_params){
+    // Compute rectangle center by shifting from the trajectory point based on vehicle geometry
+    double length = vehicle_params.lf + vehicle_params.lr;
+    double width = vehicle_params.width;
+    double shift_distance = length / 2.0 - vehicle_params.lr; // shift from rear-axle to geometric center
+    double cos_heading = std::cos(trj_point.heading);
+    double sin_heading = std::sin(trj_point.heading);
+    Vec2d center{trj_point.x + shift_distance * cos_heading, trj_point.y + shift_distance * sin_heading};
+    return get_bounding_box(center, length, width, trj_point.heading);
 }
 
 double CollisionDetection::distance_to(const std::shared_ptr<Box2d> &box1, const std::shared_ptr<Box2d> &box2) {

@@ -19,6 +19,7 @@ struct Triangle2d;
 struct VehicleState;
 struct Obstacle;
 struct VehicleParams;
+struct TrajectoryPoint;
 
 class CollisionDetection {
 public:
@@ -40,15 +41,12 @@ public:
 
     static bool has_overlap(const std::shared_ptr<Polygon2d>& boxA,const std::shared_ptr<Polygon2d>& boxB);
     
-    
-    static std::shared_ptr<Polygon2d> get_bounding_box(const std::shared_ptr<VehicleState> &vehicle_state, double length, double width, double back_to_center);
-    
-    static std::shared_ptr<Polygon2d> get_bounding_box(const std::shared_ptr<VehicleParams> &vehicle_params, double x, double y, double heading);
-    
+
+    static std::shared_ptr<Polygon2d> get_bounding_box(const TrajectoryPoint &vehicle_state,const VehicleParams &vehicle_params=VehicleParams());
+
     static std::shared_ptr<Polygon2d> get_bounding_box(const Vec2d &center, double length, double width, double heading);
     
-    static std::shared_ptr<Polygon2d> get_bounding_box(const std::shared_ptr<Obstacle> &obstacle);
-
+    static std::shared_ptr<Polygon2d> get_bounding_box(const Obstacle &obstacle);
 private:
 
     static double distance_to(const std::shared_ptr<Box2d> &box1, const std::shared_ptr<Box2d> &box2);

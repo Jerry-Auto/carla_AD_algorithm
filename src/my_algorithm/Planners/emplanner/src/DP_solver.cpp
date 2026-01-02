@@ -722,8 +722,28 @@ void path_DP(){
     // 初始化权重系数（这里使用默认值）
     
     std::vector<SLObstacle> path_obstacles;
-    path_obstacles.emplace_back(30.0, 1.5);   // 障碍物1
-    path_obstacles.emplace_back(60.0, -1.0);  // 障碍物2
+
+    // 构造两个简单的矩形障碍物（用 4 个 FrenetPoint 表示多边形）
+    {
+        std::vector<FrenetPoint> corners(4);
+        double s = 30.0, l = 1.5;
+        double half_s = 1.0, half_l = 0.5; // 可调大小
+        corners[0].s = s - half_s; corners[0].l = l - half_l;
+        corners[1].s = s - half_s; corners[1].l = l + half_l;
+        corners[2].s = s + half_s; corners[2].l = l + half_l;
+        corners[3].s = s + half_s; corners[3].l = l - half_l;
+        path_obstacles.emplace_back(corners, 0.5); // margin
+    }
+    {
+        std::vector<FrenetPoint> corners(4);
+        double s = 60.0, l = -1.0;
+        double half_s = 1.0, half_l = 0.5;
+        corners[0].s = s - half_s; corners[0].l = l - half_l;
+        corners[1].s = s - half_s; corners[1].l = l + half_l;
+        corners[2].s = s + half_s; corners[2].l = l + half_l;
+        corners[3].s = s + half_s; corners[3].l = l - half_l;
+        path_obstacles.emplace_back(corners, 0.5);
+    }
     
     // 2. 创建路径规划配置
     PathPlannerConfig path_config;

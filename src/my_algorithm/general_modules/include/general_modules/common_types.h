@@ -8,6 +8,7 @@
 
 namespace AD_algorithm {
 namespace general {
+struct CollisionDetection;
 
 struct PathPoint {
     PathPoint() : x(0.0), y(0.0), heading(0.0), accumulated_s(0.0), kappa_rate(0.0), kappa(0.0) {}
@@ -105,14 +106,27 @@ struct Obstacle {
     double length;
     double width;
     double height;
+    double time_stamp;
+    std::shared_ptr<Polygon2d> polygon;
 
-    Obstacle()
-        : id(0), x(0.0), y(0.0), z(0.0), heading(0.0), vx(0.0), vy(0.0), vz(0.0),
-          length(5.0), width(2.0), height(1.5) {}
-
+    Obstacle();
     double getSpeed() const {
         return std::sqrt(vx * vx + vy * vy + vz * vz);
     }
+    // 检查(x,y)点是否在障碍物区域内
+    bool contains(double x, double y, double safety_margin = 0.5) const;
+
+    // 计算点到障碍物区域的最小距离
+    double minDistanceTo(double x, double y) const;
+    
+    double minDistanceTo(const std::shared_ptr<Polygon2d>& obs) const;
+    double minDistanceTo(const Obstacle& box2d) const;
+    double minDistanceTo(const TrajectoryPoint& trj_point) const;
+
+
+    bool hasOverlap(const Obstacle& obs) const;
+    bool hasOverlap(const std::shared_ptr<Polygon2d>& box2d) const;
+
 };
 
 // SL障碍物表示（用于路径规划）
@@ -122,14 +136,16 @@ struct SLObstacle {
     
     SLObstacle(const std::vector<FrenetPoint>& corners, double margin = 0.5);
     
-    // 方便构造矩形障碍物 (s_center, l_center, length, width)
-    SLObstacle(double s, double l, double length = 5.0, double width = 2.0, double margin = 0.5);
-    
     // 检查(s,l)点是否在障碍物区域内
     bool contains(double s, double l, double safety_margin = 0.5) const;
-    
+
     // 计算点到障碍物区域的最小距离
     double minDistanceTo(double s, double l) const;
+    
+    double minDistanceTo(const std::shared_ptr<Polygon2d>& poly2d) const;
+
+    bool hasOverlap(const std::shared_ptr<Polygon2d>& poly2d) const;
+    
 };
 
 // ST障碍物表示（用于速度规划）
@@ -149,16 +165,6 @@ struct STObstacle {
     double minDistanceTo(double t, double s) const;
 };
 
-
-// 辅助函数：将FrenetPoint集合转换为SLObstacle
-std::vector<SLObstacle> convertToSLObstacles(
-    const std::vector<std::vector<FrenetPoint>>& frenet_obstacles,
-    double safety_margin = 0.5);
-
-// 辅助函数：将ST图节点转换为STObstacle
-std::vector<STObstacle> convertToSTObstacles(
-    const std::vector<std::vector<FrenetPoint>>& st_graph,
-    double safety_margin = 0.5);
 
 } // namespace general
 } // namespace AD_algorithm

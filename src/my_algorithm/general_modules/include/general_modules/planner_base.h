@@ -73,6 +73,8 @@ public:
         const std::vector<general::TrajectoryPoint>& trajectory,
         std::string* reason = nullptr,
         size_t min_points = 5) = 0;
+        
+    virtual std::vector<std::vector<general::TrajectoryPoint>> GetExtralTraj()=0;
 };
 
 } // namespace planner

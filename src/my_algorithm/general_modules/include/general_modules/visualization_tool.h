@@ -13,6 +13,7 @@
 #include "general_modules/FrenetFrame.h"
 #include "general_modules/Trajectory.h"
 #include "general_modules/Vehicle.h"
+#include "general_modules/common_types.h"
 #include <vector>
 #include <sstream>
 #include <iomanip>
@@ -43,6 +44,8 @@ private:
     // 发布器
     rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr ref_path_pub_;
     rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr final_path_pub_;
+    // Marker 发布器，用于带颜色的 final path 可视化
+    rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr final_path_marker_pub_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr sample_paths_pub_;
     rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr history_paths_pub_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr obstacle_pub_;
