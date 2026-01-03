@@ -295,8 +295,14 @@ FrenetPoint FrenetFrame::cartesian_to_frenet(const TrajectoryPoint& tp) const {
     fp.l_prime = l_prime;
 
     // l''(s) = d^2 l / ds^2 = (l̈ * ṡ - l̇ * s̈) / ṡ^3
-    if (std::abs(s_dot) > 1e-6) {
+    // 注意：当 ṡ 很小（低速/停车）时该式数值病态，容易产生巨大 l''，进而导致规划首段 heading/kappa 跳变。
+    constexpr double kMinAbsSDotForLPrimePrime = 0.1;  // m/s
+    constexpr double kMaxAbsLPrimePrime = 5.0;         // 1/m (s-domain)
+    if (std::abs(s_dot) > kMinAbsSDotForLPrimePrime) {
         fp.l_prime_prime = (l_dot_dot * s_dot - l_dot * s_dot_dot) / (s_dot * s_dot * s_dot);
+        if (!std::isfinite(fp.l_prime_prime) || std::abs(fp.l_prime_prime) > kMaxAbsLPrimePrime) {
+            fp.l_prime_prime = 0.0;
+        }
     } else {
         fp.l_prime_prime = 0.0;
     }
@@ -338,8 +344,14 @@ FrenetPoint FrenetFrame::cartesian_to_frenet(const VehicleState& tp) const {
     fp.l_dot_dot = l_dot_dot;
 
     // 计算 l''(s) 并保护 ṡ≈0 的情况
-    if (std::abs(s_dot) > 1e-6) {
+    // 注意：低速时该计算对噪声非常敏感，优先保证数值稳定。
+    constexpr double kMinAbsSDotForLPrimePrime = 0.1;  // m/s
+    constexpr double kMaxAbsLPrimePrime = 5.0;         // 1/m (s-domain)
+    if (std::abs(s_dot) > kMinAbsSDotForLPrimePrime) {
         fp.l_prime_prime = (l_dot_dot * s_dot - l_dot * s_dot_dot) / (s_dot * s_dot * s_dot);
+        if (!std::isfinite(fp.l_prime_prime) || std::abs(fp.l_prime_prime) > kMaxAbsLPrimePrime) {
+            fp.l_prime_prime = 0.0;
+        }
     } else {
         fp.l_prime_prime = 0.0;
     }

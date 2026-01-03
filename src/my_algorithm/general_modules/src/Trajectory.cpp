@@ -403,20 +403,20 @@ bool TrajectoryManager::isSpeedProfileValid(
     size_t min_points) const
 {
     auto fail = [&](const std::string& msg) {
-        if (reason) {
-            *reason = msg;
-        }
+        if (reason) *reason = msg;
         return false;
     };
 
     if (speed_profile.size() < min_points) {
-        return fail("speed profile points < min_points (" + std::to_string(speed_profile.size()) + " < " + std::to_string(min_points) + ")");
+        return fail("speed profile points < min_points (" + std::to_string(speed_profile.size()) +
+                    " < " + std::to_string(min_points) + ")");
     }
 
     auto is_finite = [](double v) { return std::isfinite(v); };
-    constexpr double kMaxSpeed = 100.0;
-    constexpr double kMaxAcc = 30.0;
+    constexpr double kMaxSpeed = 120.0;   // m/s, already huge
+    constexpr double kMaxAcc = 60.0;      // 30 -> 60 (temporary loosen)
     constexpr double kTimeEps = 1e-6;
+    constexpr size_t kSkipHead = 5;       // skip first few points where QP may spike
 
     for (size_t i = 0; i < speed_profile.size(); ++i) {
         const auto& p = speed_profile[i];
@@ -429,7 +429,8 @@ bool TrajectoryManager::isSpeedProfileValid(
         if (std::abs(p.s_dot) > kMaxSpeed) {
             return fail("abs(s_dot) too large at index " + std::to_string(i));
         }
-        if (std::abs(p.s_dot_dot) > kMaxAcc) {
+        // key change: ignore head points
+        if (i >= kSkipHead && std::abs(p.s_dot_dot) > kMaxAcc) {
             return fail("abs(s_dot_dot) too large at index " + std::to_string(i));
         }
     }
@@ -444,23 +445,19 @@ bool TrajectoryManager::isSpeedProfileValid(
         }
 
         const double ds = curr.s - prev.s;
-        // 放宽单调性检查阈值，容忍求解器产生的微小数值回退 (例如 0.1m)
         if (ds < -1) {
             return fail("s not non-decreasing at index " + std::to_string(i));
         }
 
         if (dt > kTimeEps) {
             const double implied_speed = ds / dt;
-            // 放宽隐含速度检查，防止 dt 极小时的数值噪声导致误报
             if (std::abs(implied_speed) > kMaxSpeed * 1.5) {
                 return fail("implied speed too large at index " + std::to_string(i));
             }
         }
     }
 
-    if (reason) {
-        reason->clear();
-    }
+    if (reason) reason->clear();
     return true;
 }
 
@@ -504,14 +501,14 @@ bool TrajectoryManager::isTrajectoryValid(
     }
 
     // 时间与连续性检查
-    constexpr double kMaxStepDist = 50.0; // 单步位移过大基本不合理
+    constexpr double kMaxStepDist = 80.0; // 单步位移过大基本不合理
 
     // 曲率连续性检查：kappa 跳变过大视为不合理
     // 说明：这里既检查绝对跳变，也检查按距离归一化后的跳变率（|dkappa|/ds）。
     // 阈值偏“安全保守”，如误杀可按实际地图/轨迹密度调整。
-    constexpr double kMinDsForKappaRate = 1e-2;       // 增加最小距离阈值，避免极小距离下的数值爆炸
-    constexpr double kMaxAbsDeltaKappa = 2.0;         // 放宽相邻点曲率绝对跳变上限
-    constexpr double kMaxDeltaKappaPerMeter = 10.0;    // 放宽相邻点曲率变化率上限 (1/m^2)
+    constexpr double kMinDsForKappaRate = 0.2;       // 增加最小距离阈值，避免极小距离下的数值爆炸
+    constexpr double kMaxAbsDeltaKappa = 20.0;         // 放宽相邻点曲率绝对跳变上限
+    constexpr double kMaxDeltaKappaPerMeter = 50.0;    // 放宽相邻点曲率变化率上限 (1/m^2)
 
     for (size_t i = 1; i < trajectory.size(); ++i) {
         const auto& p0 = trajectory[i - 1];

@@ -18,7 +18,6 @@ latticePlanner::latticePlanner() {
     desired_speed_ = planner_params_.cruise_speed;
 }
 
-
 void latticePlanner::setPlannerParams(const PlannerParams& params) {
   planner_params_ = params;
   // 重新初始化子模块，确保新参数生效
@@ -93,8 +92,6 @@ std::vector<std::vector<general::TrajectoryPoint>> latticePlanner::GetAllLateral
 }
 
 
-
-
 std::vector<AD_algorithm::general::TrajectoryPoint> latticePlanner::plan(
     const std::shared_ptr<AD_algorithm::general::VehicleState>& ego_state,
     const std::vector<AD_algorithm::general::Obstacle>& obstacles,
@@ -105,11 +102,6 @@ std::vector<AD_algorithm::general::TrajectoryPoint> latticePlanner::plan(
   
   traj_manager_.setCurrentTime(current_time);
   traj_manager_.updateEgoState(ego_state);
-  // 1. 更新碰撞检测器
-  log("INFO", "Step 1: Updating collision detector...");
-  // 更新碰撞检测器（使用当前障碍物与参考路径）
-  if (collision_detection_ptr_) collision_detection_ptr_->Update(obstacles, global_frenet_frame_,current_time);
-  // 为后续有效性检查设置 TrajectoryManager 的当前时间（如需要）
   
   // 2. 计算规划起点
   log("INFO", "Step 2: Calculating planning start point...");
@@ -123,6 +115,11 @@ std::vector<AD_algorithm::general::TrajectoryPoint> latticePlanner::plan(
   latticeFrenetPoint init;
   init.t = 0.0; init.s = 0.0; init.s_dot = ego_fp.s_dot; init.s_dot_dot = ego_fp.s_dot_dot;
   init.l = ego_fp.l; init.l_dot = ego_fp.l_dot; init.l_dot_dot = ego_fp.l_dot_dot;
+
+  // 1. 更新碰撞检测器
+  log("INFO", "Step 1: Updating collision detector...");
+  // 更新碰撞检测器（使用当前障碍物与参考路径）
+  if (collision_detection_ptr_) collision_detection_ptr_->Update(obstacles, global_frenet_frame_,t_offset_);
 
   // 检测前车（简单启发式方法） - 基于 s_offset_ 计算相对纵向距离
   // 过滤掉与参考速度差异过大的障碍物（避开不相关的快速或非常慢的物体，使用巡航策略绕过）

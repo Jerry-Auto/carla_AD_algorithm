@@ -192,12 +192,12 @@ int main() {
     latticePlanner planner;
 
     PlannerParams params;
-    params.sampling.sample_max_time = 5.0;
+    params.sampling.sample_max_time = 8.0;
     params.sampling.sample_min_time = 2.0;
-    params.sampling.sample_time_step = 0.5;
+    params.sampling.sample_time_step = 1.0;
 
-    params.sampling.sample_lat_width = 20.0;
-    params.sampling.sample_width_length = 2.0;
+    params.sampling.sample_lat_width = 8.0;
+    params.sampling.sample_width_length = 1.0;
 
     planner.setPlannerParams(params);
 
@@ -264,9 +264,9 @@ int main() {
     std::normal_distribution<double> speed_noise(0.0, 0.2);
     std::normal_distribution<double> heading_noise(0.0, 0.03);
 
-    const int total_cycles = 500;
+    const int total_cycles = 100;
     for (int cycle = 1; cycle <= total_cycles; ++cycle) {
-        double dt_cycle = 0.2;
+        double dt_cycle = 0.4;
         double target_time = current_time + dt_cycle;
         general::FrenetFrame ref_trj(trajectory);
         auto trj_msg=ref_trj.get_matched_trj_point(target_time);
@@ -305,14 +305,14 @@ int main() {
             break;
         }
 
-        if (cycle % 2 == 0) {
+        if (cycle % 1 == 0) {
             std::cout << "Cycle " << cycle << ": trajectory size=" << trajectory.size() << std::endl;
             try {
                 const auto& lateral_candidates = planner.GetAllLateralCandidatesCartesian();
                 visualize(reference_path, obstacles, trajectory, *ego, lateral_candidates);
             } catch (const std::exception& e) {
                 std::cerr << "Warning: lateral candidate visualization failed in cycle " << cycle << ": " << e.what() << std::endl;
-                // visualize(reference_path, obstacles, trajectory, *ego);
+                visualize(reference_path, obstacles, trajectory, *ego);
             }
         }
     }

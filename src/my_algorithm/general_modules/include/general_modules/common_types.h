@@ -52,7 +52,7 @@ struct FrenetPoint {
 // 车辆参数结构体
 struct VehicleParams {
     VehicleParams() : mass(1845.0), lf(1.426), lr(1.426), iz(3751.6), cf(155494.663),
-                      cr(155494.663), max_steer(1.0), max_accel(4.0), max_decel(6.0) {}
+                      cr(155494.663), max_steer(1.0), max_accel(4.0), max_decel(6.0), width(2.0) {}
     double mass;
     double lf;
     double lr;
@@ -107,26 +107,25 @@ struct Obstacle {
     double width;
     double height;
     double time_stamp;
+
+private:
     std::shared_ptr<Polygon2d> polygon;
+    std::shared_ptr<Polygon2d> BuildPolyNow() const;
+
+public:
 
     Obstacle();
-    double getSpeed() const {
-        return std::sqrt(vx * vx + vy * vy + vz * vz);
-    }
-    // 检查(x,y)点是否在障碍物区域内
+    double getSpeed() const { return std::sqrt(vx * vx + vy * vy + vz * vz); }
+
     bool contains(double x, double y, double safety_margin = 0.5) const;
 
-    // 计算点到障碍物区域的最小距离
     double minDistanceTo(double x, double y) const;
-    
     double minDistanceTo(const std::shared_ptr<Polygon2d>& obs) const;
     double minDistanceTo(const Obstacle& box2d) const;
     double minDistanceTo(const TrajectoryPoint& trj_point) const;
 
-
     bool hasOverlap(const Obstacle& obs) const;
     bool hasOverlap(const std::shared_ptr<Polygon2d>& box2d) const;
-
 };
 
 // SL障碍物表示（用于路径规划）

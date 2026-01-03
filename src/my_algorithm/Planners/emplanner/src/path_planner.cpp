@@ -87,6 +87,23 @@ std::vector<TrajectoryPoint> PathPlanner::planPath(
     FrenetPoint start_point = planning_start_point;
     double offset_s = start_point.s;
     start_point.s = 0.0;
+
+    // 防御：起点 l''(s) 在低速/噪声情况下可能数值爆炸，导致首段 heading/kappa 跳变。
+    // 这里做一次兜底限幅，避免异常值被 DP/QP 起点约束“锁死”。
+    auto finite_or_zero = [](double v) { return std::isfinite(v) ? v : 0.0; };
+    start_point.l_prime = finite_or_zero(start_point.l_prime);
+    start_point.l_prime_prime = finite_or_zero(start_point.l_prime_prime);
+
+    constexpr double kMaxAbsLPrime = 2.0;
+    constexpr double kMaxAbsLPrimePrime = 5.0;
+    if (std::abs(start_point.l_prime) > kMaxAbsLPrime) {
+        log("WARN", "Planning start l' out of range, clamped: l'=" + std::to_string(start_point.l_prime));
+        start_point.l_prime = std::max(-kMaxAbsLPrime, std::min(kMaxAbsLPrime, start_point.l_prime));
+    }
+    if (std::abs(start_point.l_prime_prime) > kMaxAbsLPrimePrime) {
+        log("WARN", "Planning start l'' out of range, reset to 0: l''=" + std::to_string(start_point.l_prime_prime));
+        start_point.l_prime_prime = 0.0;
+    }
     
     // log("INFO", "Planning start point: s=" + std::to_string(start_point.s) + 
     //     ", l=" + std::to_string(start_point.l));

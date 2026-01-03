@@ -207,42 +207,67 @@ bool CollisionDetection::is_point_in(const std::shared_ptr<Box2d> &bounding_box,
          dy <= bounding_box->half_width + kMathEpsilon;
 }
 
-bool CollisionDetection::has_overlap(const std::shared_ptr<Box2d> &bounding_box, const std::shared_ptr<LineSegment2d> &line_segment) {
+// Replace your current CollisionDetection::has_overlap(Box2d, LineSegment2d) with this.
+bool CollisionDetection::has_overlap(const std::shared_ptr<Box2d> &bounding_box,
+                                     const std::shared_ptr<LineSegment2d> &line_segment) {
+  if (!bounding_box || !line_segment) return false;
+
+  // Treat degenerate segment as point
   if (line_segment->length <= kMathEpsilon) {
     return is_point_in(bounding_box, line_segment->start);
   }
 
-  // 1. 将线段转换到矩形的局部坐标系 (中心在原点，轴对齐)
+  // Transform segment endpoints to box local frame (AABB centered at origin)
   const double dx1 = line_segment->start.x - bounding_box->center.x;
   const double dy1 = line_segment->start.y - bounding_box->center.y;
-  const double lx1 = dx1 * bounding_box->cos_heading + dy1 * bounding_box->sin_heading;
-  const double ly1 = -dx1 * bounding_box->sin_heading + dy1 * bounding_box->cos_heading;
+  const double x1 = dx1 * bounding_box->cos_heading + dy1 * bounding_box->sin_heading;
+  const double y1 = -dx1 * bounding_box->sin_heading + dy1 * bounding_box->cos_heading;
 
   const double dx2 = line_segment->end.x - bounding_box->center.x;
   const double dy2 = line_segment->end.y - bounding_box->center.y;
-  const double lx2 = dx2 * bounding_box->cos_heading + dy2 * bounding_box->sin_heading;
-  const double ly2 = -dx2 * bounding_box->sin_heading + dy2 * bounding_box->cos_heading;
+  const double x2 = dx2 * bounding_box->cos_heading + dy2 * bounding_box->sin_heading;
+  const double y2 = -dx2 * bounding_box->sin_heading + dy2 * bounding_box->cos_heading;
 
-  // 2. 使用分离轴定理 (SAT)
-  // 轴 1 & 2: 矩形的局部坐标轴 (X 和 Y)
-  if (std::min(lx1, lx2) > bounding_box->half_length + kMathEpsilon ||
-      std::max(lx1, lx2) < -bounding_box->half_length - kMathEpsilon ||
-      std::min(ly1, ly2) > bounding_box->half_width + kMathEpsilon ||
-      std::max(ly1, ly2) < -bounding_box->half_width - kMathEpsilon) {
-    return false;
-  }
+  const double min_x = -bounding_box->half_length;
+  const double max_x = bounding_box->half_length;
+  const double min_y = -bounding_box->half_width;
+  const double max_y = bounding_box->half_width;
 
-  // 轴 3: 线段的法线方向 (在局部坐标系下)
-  const double v_lx = lx2 - lx1;
-  const double v_ly = ly2 - ly1;
-  // 局部坐标系下的法线 n = (-v_ly, v_lx)
-  // 矩形在法线上的投影半径为: |n_x| * half_length + |n_y| * half_width
-  const double max_box_proj = std::abs(v_ly) * bounding_box->half_length + 
-                               std::abs(v_lx) * bounding_box->half_width;
-  // 线段在法线上的投影 (两端点投影相同): n_x * lx1 + n_y * ly1
-  const double line_proj = -v_ly * lx1 + v_lx * ly1;
+  // Slab method: intersect segment param t in [0,1] with x/y slabs
+  double t0 = 0.0;
+  double t1 = 1.0;
 
-  return std::abs(line_proj) <= max_box_proj + kMathEpsilon;
+  auto clip = [&](double p, double q) -> bool {
+    // p = -dx or dx ; q = x1 - min_x etc (standard Liang-Barsky style)
+    if (std::fabs(p) <= kMathEpsilon) {
+      // Parallel to slab: must be inside
+      return q >= -kMathEpsilon;
+    }
+    double r = q / p;
+    if (p < 0) {
+      if (r > t1 + kMathEpsilon) return false;
+      if (r > t0) t0 = r;
+    } else {
+      if (r < t0 - kMathEpsilon) return false;
+      if (r < t1) t1 = r;
+    }
+    return true;
+  };
+
+  const double dx = x2 - x1;
+  const double dy = y2 - y1;
+
+  // For x in [min_x, max_x]:
+  // x = x1 + t*dx
+  if (!clip(-dx, x1 - min_x)) return false;
+  if (!clip(dx, max_x - x1)) return false;
+
+  // For y in [min_y, max_y]:
+  if (!clip(-dy, y1 - min_y)) return false;
+  if (!clip(dy, max_y - y1)) return false;
+
+  // If we get here, there is intersection with t interval overlapping [0,1]
+  return t0 <= t1 + kMathEpsilon;
 }
 
 bool CollisionDetection::has_overlap(const std::shared_ptr<Polygon2d>& polygon, const std::shared_ptr<LineSegment2d> &line_segment) {
@@ -315,24 +340,57 @@ bool CollisionDetection::has_overlap_polygon_line_segment(const std::shared_ptr<
     return false;
 }
 
-bool CollisionDetection::segments_intersect(const std::shared_ptr<LineSegment2d> &s1, const std::shared_ptr<LineSegment2d> &s2) {
-    // 快速排斥实验
-    if (std::max(s1->start.x, s1->end.x) < std::min(s2->start.x, s2->end.x) - kMathEpsilon ||
-        std::max(s2->start.x, s2->end.x) < std::min(s1->start.x, s1->end.x) - kMathEpsilon ||
-        std::max(s1->start.y, s1->end.y) < std::min(s2->start.y, s2->end.y) - kMathEpsilon ||
-        std::max(s2->start.y, s2->end.y) < std::min(s1->start.y, s1->end.y) - kMathEpsilon) {
-        return false;
-    }
+// Replace CollisionDetection::segments_intersect with this robust version.
+bool CollisionDetection::segments_intersect(const std::shared_ptr<LineSegment2d> &s1,
+                                            const std::shared_ptr<LineSegment2d> &s2) {
+  if (!s1 || !s2) return false;
 
-    // 跨立实验
-    // 使用 cross_prod(A, B, C) 计算向量 AB 和 AC 的叉积
-    double cp1 = cross_prod(s1->start, s1->end, s2->start);
-    double cp2 = cross_prod(s1->start, s1->end, s2->end);
-    double cp3 = cross_prod(s2->start, s2->end, s1->start);
-    double cp4 = cross_prod(s2->start, s2->end, s1->end);
+  const Vec2d& A = s1->start;
+  const Vec2d& B = s1->end;
+  const Vec2d& C = s2->start;
+  const Vec2d& D = s2->end;
 
-    return (((cp1 > kMathEpsilon && cp2 < -kMathEpsilon) || (cp1 < -kMathEpsilon && cp2 > kMathEpsilon)) &&
-            ((cp3 > kMathEpsilon && cp4 < -kMathEpsilon) || (cp3 < -kMathEpsilon && cp4 > kMathEpsilon)));
+  // Fast AABB reject
+  if (std::max(A.x, B.x) < std::min(C.x, D.x) - kMathEpsilon ||
+      std::max(C.x, D.x) < std::min(A.x, B.x) - kMathEpsilon ||
+      std::max(A.y, B.y) < std::min(C.y, D.y) - kMathEpsilon ||
+      std::max(C.y, D.y) < std::min(A.y, B.y) - kMathEpsilon) {
+    return false;
+  }
+
+  auto sgn = [](double v) -> int {
+    if (v > kMathEpsilon) return 1;
+    if (v < -kMathEpsilon) return -1;
+    return 0;
+  };
+
+  auto on_segment = [](const Vec2d& P, const Vec2d& Q, const Vec2d& X) -> bool {
+    // assumes collinear within eps; check bounding box with eps
+    return (std::min(P.x, Q.x) - kMathEpsilon <= X.x && X.x <= std::max(P.x, Q.x) + kMathEpsilon &&
+            std::min(P.y, Q.y) - kMathEpsilon <= X.y && X.y <= std::max(P.y, Q.y) + kMathEpsilon);
+  };
+
+  // cross_prod(A,B,C) = cross((B-A),(C-A))
+  double o1 = cross_prod(A, B, C);
+  double o2 = cross_prod(A, B, D);
+  double o3 = cross_prod(C, D, A);
+  double o4 = cross_prod(C, D, B);
+
+  int s1o = sgn(o1);
+  int s2o = sgn(o2);
+  int s3o = sgn(o3);
+  int s4o = sgn(o4);
+
+  // Proper intersection
+  if (s1o * s2o < 0 && s3o * s4o < 0) return true;
+
+  // Touching / collinear cases (touch counts as intersection)
+  if (s1o == 0 && on_segment(A, B, C)) return true;
+  if (s2o == 0 && on_segment(A, B, D)) return true;
+  if (s3o == 0 && on_segment(C, D, A)) return true;
+  if (s4o == 0 && on_segment(C, D, B)) return true;
+
+  return false;
 }
 
 std::shared_ptr<Polygon2d> CollisionDetection::get_bounding_box(const Obstacle &obstacle) {

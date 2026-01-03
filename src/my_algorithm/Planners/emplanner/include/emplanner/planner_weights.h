@@ -87,12 +87,12 @@ struct SpeedPlannerConfig {
     double qp_dense_path_interval=0.1;  // QP规划输入点间隔，两个点之间的距离
     double final_path_interval = 0.02;  // 最终路径点密度间隔，两个点之间的距离
  
-    double max_lateral_acc = 1.5 * 9.8; // 最大横向加速度，直接影响过弯速度
+    double max_lateral_acc = 15 * 9.8; // 最大横向加速度，直接影响过弯速度
     double max_speed = 120.0/3.6;          // 最大速度
-    double max_acceleration = 4.0;
-    double max_deceleration = -6.0;
+    double max_acceleration = 100.0;
+    double max_deceleration = -100.0;
     double max_curvature = 100.0;
-    double max_jerk = 10.0;
+    double max_jerk = 100.0;
 
     // 验证配置
     bool validate() const {

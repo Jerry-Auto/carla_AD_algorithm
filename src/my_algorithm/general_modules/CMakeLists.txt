@@ -93,6 +93,51 @@ ament_target_dependencies(test_frenet
   visualization_msgs
 )
 
+
+add_executable(collison_detect test/collision_detect.cpp)
+
+# 给可执行文件包含头文件
+target_include_directories(collison_detect
+  PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+# 链接你的库 + 依赖
+target_link_libraries(collison_detect
+  ${PROJECT_NAME}
+  rclcpp::rclcpp
+  tf2_geometry_msgs::tf2_geometry_msgs
+  spdlog
+)
+
+ament_target_dependencies(collison_detect
+  rclcpp
+  nav_msgs
+  visualization_msgs
+)
+
+add_executable(obstacle_test test/obstacle_test.cpp)
+
+# 给可执行文件包含头文件
+target_include_directories(obstacle_test
+  PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+# 链接你的库 + 依赖
+target_link_libraries(obstacle_test
+  ${PROJECT_NAME}
+  rclcpp::rclcpp
+  tf2_geometry_msgs::tf2_geometry_msgs
+  spdlog
+)
+
+ament_target_dependencies(obstacle_test
+  rclcpp
+  nav_msgs
+  visualization_msgs
+)
+
 # ========================
 # 安装规则
 # ========================
@@ -121,7 +166,8 @@ install(
 
 # 安装可执行文件（测试程序）
 install(TARGETS test_frenet DESTINATION lib/${PROJECT_NAME})
-
+install(TARGETS collison_detect DESTINATION lib/${PROJECT_NAME})
+install(TARGETS obstacle_test DESTINATION lib/${PROJECT_NAME})
 # ========================
 # 导出接口
 # ========================

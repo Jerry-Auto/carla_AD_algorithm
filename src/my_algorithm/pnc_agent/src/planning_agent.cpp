@@ -24,12 +24,12 @@ PlanningAgent::PlanningAgent() : Node("planning_agent")
 {
     this->declare_parameter<std::string>("role_name", "ego_vehicle");
     this->get_parameter("role_name", _role_name);
-    this->declare_parameter<std::string>("planner_type", "lattice");// lattice   emplanner
+    this->declare_parameter<std::string>("planner_type", "emplanner");// lattice   emplanner
     this->get_parameter("planner_type", _planner_type);
     this->declare_parameter<bool>("enable_planner_log", true);
     this->get_parameter("enable_planner_log", _enable_planner_log);
 
-    this->declare_parameter<bool>("enable_file_log", false);
+    this->declare_parameter<bool>("enable_file_log", true);
     this->get_parameter("enable_file_log", _enable_file_log);
     this->declare_parameter<std::string>("file_log_dir", "log");
     this->get_parameter("file_log_dir", _file_log_dir);
@@ -208,6 +208,10 @@ void PlanningAgent::objects_cb(const derived_object_msgs::msg::ObjectArray::Shar
     {
         std::lock_guard<std::mutex> lock(_objects_mutex);
         _object_arrry = std::move(obstacles);
+        time_t now = this->now().seconds();
+        for(auto& obs : _object_arrry) {
+            obs.time_stamp = now;
+        }
     }
 }
 
@@ -315,9 +319,9 @@ void PlanningAgent::planning_run_step()
     }
     _trajectory_publisher->publish(pub_msg);
 
-    auto extral_trajs = _planner->GetExtralTraj();
     _viz_tool->FinalPathVisualization(trajectory); 
     _viz_tool->ObstacleVisualization(objects_copy);
+    auto extral_trajs = _planner->GetExtralTraj();
     _viz_tool->SamplePathsVisualization(extral_trajs);
 
     auto end_time = std::chrono::high_resolution_clock::now();

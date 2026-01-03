@@ -57,7 +57,7 @@ std::vector<LatCandidate>
 Trajectory1DGenerator::GenerateLateralCandidates(const latticeFrenetPoint& init, double T, double reference_speed) const {
   std::vector<LatCandidate> candidates;
   // 参考 Apollo 的实现：横向曲线以纵向弧长 s 为参数（d(s)），因此在若干 end_s 候选上采样
-  std::vector<double> end_s_candidates = {10.0, 20.0, 40.0, 80.0};
+  std::vector<double> end_s_candidates = {10.0, 80.0};
   // 同时加入基于参考速度的估计终点 s（使用传入的 reference_speed）
   double est_end_s = reference_speed * T;
 
