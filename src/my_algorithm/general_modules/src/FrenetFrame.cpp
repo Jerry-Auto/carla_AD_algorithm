@@ -267,7 +267,9 @@ FrenetPoint FrenetFrame::cartesian_to_frenet(const TrajectoryPoint& tp) const {
     double s_dot = v_cart.dot(proj.tau) / (c + 1e-9);
     double l_dot = v_cart.dot(proj.nor);
     double l_prime = (std::abs(s_dot) > 1e-5) ? l_dot / s_dot : 0.0;
-
+    constexpr double kMaxAbsLPrime = 2.0; // unitless (dl/ds)
+    if (!std::isfinite(l_prime) || std::abs(l_prime) > kMaxAbsLPrime) l_prime = 0.0;
+    
     // 使用全量加速度投影来计算 s̈ 和 l̈（包含 κ' 与耦合项），更精确
     Eigen::Vector2d a_cart(tp.ax, tp.ay);
     double a_t = a_cart.dot(proj.tau);
@@ -296,15 +298,25 @@ FrenetPoint FrenetFrame::cartesian_to_frenet(const TrajectoryPoint& tp) const {
 
     // l''(s) = d^2 l / ds^2 = (l̈ * ṡ - l̇ * s̈) / ṡ^3
     // 注意：当 ṡ 很小（低速/停车）时该式数值病态，容易产生巨大 l''，进而导致规划首段 heading/kappa 跳变。
-    constexpr double kMinAbsSDotForLPrimePrime = 0.1;  // m/s
-    constexpr double kMaxAbsLPrimePrime = 5.0;         // 1/m (s-domain)
-    if (std::abs(s_dot) > kMinAbsSDotForLPrimePrime) {
-        fp.l_prime_prime = (l_dot_dot * s_dot - l_dot * s_dot_dot) / (s_dot * s_dot * s_dot);
-        if (!std::isfinite(fp.l_prime_prime) || std::abs(fp.l_prime_prime) > kMaxAbsLPrimePrime) {
+    // ===== Robust l''(s) computation (stability-first) =====
+    constexpr double kMinAbsSDotForLpp = 1.0;     // was 0.1
+    constexpr double kMaxAbsLpp = 2.0;            // was 5.0
+    constexpr double kMaxAbsSDotDot = 10.0;       // m/s^2
+    constexpr double kMaxAbsLDotDot = 10.0;       // m/s^2
+
+    fp.l_prime_prime = 0.0;
+    if (std::isfinite(s_dot) && std::isfinite(l_dot) &&
+        std::isfinite(s_dot_dot) && std::isfinite(l_dot_dot) &&
+        std::abs(s_dot) >= kMinAbsSDotForLpp &&
+        std::abs(s_dot_dot) <= kMaxAbsSDotDot &&
+        std::abs(l_dot_dot) <= kMaxAbsLDotDot) {
+
+        const double denom = s_dot * s_dot * s_dot;
+        fp.l_prime_prime = (l_dot_dot * s_dot - l_dot * s_dot_dot) / denom;
+
+        if (!std::isfinite(fp.l_prime_prime) || std::abs(fp.l_prime_prime) > kMaxAbsLpp) {
             fp.l_prime_prime = 0.0;
         }
-    } else {
-        fp.l_prime_prime = 0.0;
     }
 
     return fp;
@@ -345,15 +357,25 @@ FrenetPoint FrenetFrame::cartesian_to_frenet(const VehicleState& tp) const {
 
     // 计算 l''(s) 并保护 ṡ≈0 的情况
     // 注意：低速时该计算对噪声非常敏感，优先保证数值稳定。
-    constexpr double kMinAbsSDotForLPrimePrime = 0.1;  // m/s
-    constexpr double kMaxAbsLPrimePrime = 5.0;         // 1/m (s-domain)
-    if (std::abs(s_dot) > kMinAbsSDotForLPrimePrime) {
-        fp.l_prime_prime = (l_dot_dot * s_dot - l_dot * s_dot_dot) / (s_dot * s_dot * s_dot);
-        if (!std::isfinite(fp.l_prime_prime) || std::abs(fp.l_prime_prime) > kMaxAbsLPrimePrime) {
+    // ===== Robust l''(s) computation (stability-first) =====
+    constexpr double kMinAbsSDotForLpp = 1.0;     // was 0.1
+    constexpr double kMaxAbsLpp = 2.0;            // was 5.0
+    constexpr double kMaxAbsSDotDot = 10.0;       // m/s^2
+    constexpr double kMaxAbsLDotDot = 10.0;       // m/s^2
+
+    fp.l_prime_prime = 0.0;
+    if (std::isfinite(s_dot) && std::isfinite(l_dot) &&
+        std::isfinite(s_dot_dot) && std::isfinite(l_dot_dot) &&
+        std::abs(s_dot) >= kMinAbsSDotForLpp &&
+        std::abs(s_dot_dot) <= kMaxAbsSDotDot &&
+        std::abs(l_dot_dot) <= kMaxAbsLDotDot) {
+
+        const double denom = s_dot * s_dot * s_dot;
+        fp.l_prime_prime = (l_dot_dot * s_dot - l_dot * s_dot_dot) / denom;
+
+        if (!std::isfinite(fp.l_prime_prime) || std::abs(fp.l_prime_prime) > kMaxAbsLpp) {
             fp.l_prime_prime = 0.0;
         }
-    } else {
-        fp.l_prime_prime = 0.0;
     }
 
     return fp;
@@ -422,7 +444,12 @@ TrajectoryPoint FrenetFrame::frenet_to_cartesian(const FrenetPoint& fp) const {
         double s_dot = fp.s_dot;
         double s_dot_dot = fp.s_dot_dot;
         double l_dot = fp.l_dot;
-        double u_dot = fp.l_prime_prime * s_dot; // dl'/dt = (d^2 l / ds^2) * ds/dt
+        double u_dot = 0.0;
+        constexpr double kMinAbsSDotForUDot = 1.0; // match the l'' rule
+        if (std::isfinite(fp.l_prime_prime) && std::isfinite(s_dot) &&
+            std::abs(s_dot) >= kMinAbsSDotForUDot) {
+            u_dot = fp.l_prime_prime * s_dot;
+        } // dl'/dt = (d^2 l / ds^2) * ds/dt
         // d/dt c = - (kappa' * s_dot * l + kappa * l_dot)
         double d_c = - (ref.kappa_rate * s_dot * fp.l + ref.kappa * l_dot);
         // 计算 r'' 在参考系的切向和法向分量

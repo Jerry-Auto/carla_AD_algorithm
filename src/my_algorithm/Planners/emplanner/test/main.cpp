@@ -195,6 +195,7 @@ void test_planner() {
     config.s_sample_distance = 1.0;
     config.s_sample_number = 100;
     emplanner->setPathPlannerConfig(config);
+    emplanner->set_log_enable(true);
 
     // 2. 创建弯曲参考线（模拟弯道）
     std::cout << "Creating curved reference line..." << std::endl;

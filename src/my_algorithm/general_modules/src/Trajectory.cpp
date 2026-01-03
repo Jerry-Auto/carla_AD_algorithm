@@ -414,7 +414,7 @@ bool TrajectoryManager::isSpeedProfileValid(
 
     auto is_finite = [](double v) { return std::isfinite(v); };
     constexpr double kMaxSpeed = 120.0;   // m/s, already huge
-    constexpr double kMaxAcc = 60.0;      // 30 -> 60 (temporary loosen)
+    constexpr double kMaxAcc = 10.0;      // 30 -> 60 (temporary loosen)
     constexpr double kTimeEps = 1e-6;
     constexpr size_t kSkipHead = 5;       // skip first few points where QP may spike
 
@@ -493,7 +493,16 @@ bool TrajectoryManager::isTrajectoryValid(
             return fail("abs(v) too large at index " + std::to_string(i));
         }
         if (std::abs(p.ax) > max_acc_ || std::abs(p.ay) > max_acc_ || std::abs(p.a_tau) > max_acc_) {
-            return fail("acc too large at index " + std::to_string(i));
+            std::ostringstream oss;
+            oss << "[TrajectoryValid] acc too large at index " << i
+                << ": ax=" << p.ax << ", ay=" << p.ay << ", a_tau=" << p.a_tau
+                << ", limit=" << max_acc_
+                << ", v=" << p.v
+                << ", heading=" << p.heading
+                << ", kappa=" << p.kappa
+                << ", t=" << p.time_stamped;
+            std::cout << oss.str() << std::endl;
+            return fail(oss.str());
         }
         if (std::abs(p.kappa) > max_curvature_) {
             return fail("abs(kappa) too large at index " + std::to_string(i));

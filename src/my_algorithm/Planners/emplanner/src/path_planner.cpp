@@ -104,6 +104,10 @@ std::vector<TrajectoryPoint> PathPlanner::planPath(
         log("WARN", "Planning start l'' out of range, reset to 0: l''=" + std::to_string(start_point.l_prime_prime));
         start_point.l_prime_prime = 0.0;
     }
+
+    // 进一步兜底：l'' 作为 s 域二阶导在实车/仿真低速段非常容易被噪声放大。
+    // 为避免多项式加密时内部震荡，统一将起点 l'' 置零（DP/QP 仍会通过平滑项生成合理曲率）。
+    start_point.l_prime_prime = 0.0;
     
     // log("INFO", "Planning start point: s=" + std::to_string(start_point.s) + 
     //     ", l=" + std::to_string(start_point.l));
@@ -343,9 +347,10 @@ bool PathPlanner::QP_pathOptimization(const std::vector<double>& l_min,const std
     // 2.1 连续性约束 (Continuity Constraints)
     // 基于泰勒展开保证相邻点之间的位置和导数连续
     Eigen::SparseMatrix<double> A_continuity(2*(point_num-1), 3*point_num);
-    double delta_s = dp_path_[1].s - dp_path_[0].s;
+    double delta_s =0.0;
     
     for (size_t i = 0; i < point_num-1; i++) {
+        delta_s = dp_path_[i+1].s - dp_path_[i].s;
         int r = 2*i; // 行索引
         int c = 3*i; // 列索引
         
@@ -378,6 +383,8 @@ bool PathPlanner::QP_pathOptimization(const std::vector<double>& l_min,const std
     double car_width = 3.0;
 
     for (size_t i = 0; i < point_num; i++) {
+        delta_s = dp_path_[i+1].s - dp_path_[i].s;
+
         // 对每个点添加4个约束，分别对应车身不同部位的横向位置
         // l_corner = l + l' * dist
         A_collision.insert(4*i + 0, 3*i + 0) = 1; A_collision.insert(4*i + 0, 3*i + 1) = d1;
@@ -561,10 +568,26 @@ void PathPlanner::IncreasePathDensity(std::vector<general::FrenetPoint>& DP_or_Q
         for(size_t i=0;i<DP_or_QP.size()-1;++i){
             const auto& p0 = DP_or_QP[i];
             const auto& p1 = DP_or_QP[i+1];
+
+            // 防御：若端点导数异常（尤其是 l'' 巨大），多项式在区间内部可能严重超调，
+            // 造成 Cartesian 点位跳变（触发 step distance too large）。这里对拟合输入做限幅。
+            auto clamp_abs = [](double v, double abs_max) {
+                if (!std::isfinite(v)) return 0.0;
+                return std::max(-abs_max, std::min(abs_max, v));
+            };
+            constexpr double kMaxAbsLPrimeForFit = 2.0;
+            constexpr double kMaxAbsLPrimePrimeForFit = 5.0;
+            const double l0 = std::isfinite(p0.l) ? p0.l : 0.0;
+            const double dl0 = clamp_abs(p0.l_prime, kMaxAbsLPrimeForFit);
+            const double ddl0 = clamp_abs(p0.l_prime_prime, kMaxAbsLPrimePrimeForFit);
+            const double l1 = std::isfinite(p1.l) ? p1.l : l0;
+            const double dl1 = clamp_abs(p1.l_prime, kMaxAbsLPrimeForFit);
+            const double ddl1 = clamp_abs(p1.l_prime_prime, kMaxAbsLPrimePrimeForFit);
+
             PolynomialCurve poly;
             poly.curve_fitting(
-                p0.s, p0.l, p0.l_prime, p0.l_prime_prime,
-                p1.s, p1.l, p1.l_prime, p1.l_prime_prime
+                p0.s, l0, dl0, ddl0,
+                p1.s, l1, dl1, ddl1
             );
             auto linspace=Eigen::VectorXd::LinSpaced(
                 num,p0.s, p1.s
@@ -577,6 +600,13 @@ void PathPlanner::IncreasePathDensity(std::vector<general::FrenetPoint>& DP_or_Q
                 fp.l = poly.value_evaluation(s,0);
                 fp.l_prime = poly.value_evaluation(s,1);
                 fp.l_prime_prime = poly.value_evaluation(s,2);
+
+                // 再做一次输出侧限幅，避免数值异常扩散到 Cartesian。
+                // 这里用车道宽度的倍数作为上限，既不会“夹死”正常轨迹，也能阻止超调导致的跳点。
+                const double l_abs_max_out = std::max(5.0, config_.lane_width * 2.0);
+                fp.l = clamp_abs(fp.l, l_abs_max_out);
+                fp.l_prime = clamp_abs(fp.l_prime, 5.0);
+                fp.l_prime_prime = clamp_abs(fp.l_prime_prime, 10.0);
                 dense_path.push_back(fp);
             }
         }
