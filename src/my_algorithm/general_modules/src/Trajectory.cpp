@@ -161,13 +161,18 @@ void TrajectoryManager::classifyObstacles(
                 static_obstacles.push_back(obs);
             }
         } else { // 动态障碍物
-            // 额外检查：如果是低速动态障碍物 (0.5 - 2.0 m/s)，收紧横向范围
-            // 防止远处的噪点被纳入
-            double lat_limit = (v_obs < 2.0) ? 10.0 : 20.0;
-            
-            if (longitudinal_d >= -10.0 && longitudinal_d <= 60.0 &&
-                lateral_d >= -lat_limit && lateral_d <= lat_limit) {
-                dynamic_obstacles.push_back(obs);
+            // 检查是否为正前方的动态障碍物，如果是，则视为虚拟静态障碍物
+            if (longitudinal_d > 0 && std::abs(lateral_d) < 3.0) { // 正前方3米横向范围内
+                static_obstacles.push_back(obs);
+            } else {
+                // 额外检查：如果是低速动态障碍物 (0.5 - 2.0 m/s)，收紧横向范围
+                // 防止远处的噪点被纳入
+                double lat_limit = (v_obs < 2.0) ? 10.0 : 20.0;
+                
+                if (longitudinal_d >= -10.0 && longitudinal_d <= 60.0 &&
+                    lateral_d >= -lat_limit && lateral_d <= lat_limit) {
+                    dynamic_obstacles.push_back(obs);
+                }
             }
         }
     }

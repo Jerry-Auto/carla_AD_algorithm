@@ -47,8 +47,6 @@ struct FrenetPoint {
 };
 
 
-
-
 // 车辆参数结构体
 struct VehicleParams {
     VehicleParams() : mass(1845.0), lf(1.426), lr(1.426), iz(3751.6), cf(155494.663),

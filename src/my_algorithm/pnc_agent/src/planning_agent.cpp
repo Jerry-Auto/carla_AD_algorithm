@@ -99,6 +99,7 @@ PlanningAgent::PlanningAgent() : Node("planning_agent")
 
 void PlanningAgent::odometry_cb(const nav_msgs::msg::Odometry::SharedPtr msg)
 {
+    // 所有的信息代表车辆质心点的状态，xy方向就是几何中心点
     std::lock_guard<std::mutex> lock(_ego_state_mutex);
     _current_ego_state->x = msg->pose.pose.position.x;
     _current_ego_state->y = msg->pose.pose.position.y;

@@ -69,7 +69,7 @@ def generate_launch_description():
         ),
         launch.actions.DeclareLaunchArgument(
             name='town',
-            default_value='Town04'
+            default_value='HighD'#Town04
         ),
         launch.actions.DeclareLaunchArgument(
             name='timeout',
@@ -89,7 +89,7 @@ def generate_launch_description():
         ),
         launch.actions.DeclareLaunchArgument(
             name='spawn_point',
-            default_value='127.4,-195.4,2,0,0,180'
+            default_value='0.0,5.25,2,0,0,180'
         ),
         launch.actions.DeclareLaunchArgument(
             name='target_speed',
@@ -208,24 +208,18 @@ def generate_launch_description():
                     }]
                 ),
 
-                # 场景相关公共能力（仅保留 road width 发布）：统一由 scenario/load_scenario.launch.py 维护
-                launch.actions.IncludeLaunchDescription(
-                    launch.launch_description_sources.PythonLaunchDescriptionSource(
-                        os.path.join(get_package_share_directory('scenario'), 'launch', 'load_scenario.launch.py')
-                    ),
-                    launch_arguments={
-                        'host': launch.substitutions.LaunchConfiguration('host'),
-                        'port': launch.substitutions.LaunchConfiguration('port'),
+                # 直接启动道路宽度发布节点（取代包含 scenario/load_scenario.launch.py ）
+                launch_ros.actions.Node(
+                    package='scenario',
+                    executable='road_width_pub.py',
+                    name='road_width_publisher',
+                    output='screen',
+                    parameters=[{
+                        'carla_host': launch.substitutions.LaunchConfiguration('host'),
+                        'carla_port': launch.substitutions.LaunchConfiguration('port'),
                         'role_name': launch.substitutions.LaunchConfiguration('role_name'),
-
-                        'enable_scenario_runner': 'False',
-                        'enable_spawn_ego': 'False',
-                        'enable_available_scenarios': 'False',
-                        'enable_vehicle_info_checker': 'False',
-                        'enable_road_width_pub': 'True',
-
-                        'auto_execute': 'False',
-                    }.items()
+                        'publish_topic': '/carla/road_boundaries'
+                    }]
                 ),
             ]
         ),
