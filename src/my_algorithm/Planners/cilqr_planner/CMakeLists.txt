@@ -8,7 +8,7 @@ endif()
 
 # Default to C++14
 if(NOT CMAKE_CXX_STANDARD)
-  set(CMAKE_CXX_STANDARD 14)
+  set(CMAKE_CXX_STANDARD 17)
 endif()
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
@@ -17,9 +17,65 @@ endif()
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
-# uncomment the following section in order to fill in
-# further dependencies manually.
-# find_package(<dependency> REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(Eigen3 REQUIRED)
+find_package(casadi REQUIRED)
+find_package(general_modules REQUIRED)
+find_package(Python3 COMPONENTS Development NumPy REQUIRED)
+
+# Include directories
+include_directories(include)
+include_directories(${EIGEN3_INCLUDE_DIR})
+include_directories(${Python3_INCLUDE_DIRS} ${Python3_NumPy_INCLUDE_DIRS})
+
+# Library
+add_library(${PROJECT_NAME} SHARED
+  src/cilqr_planner.cpp
+  src/cost_define.cpp
+)
+
+target_link_libraries(${PROJECT_NAME}
+  rclcpp::rclcpp
+  Python3::Python
+  Python3::NumPy
+  casadi
+  general_modules::general_modules
+)
+
+ament_target_dependencies(${PROJECT_NAME})
+
+# Test executable
+add_executable(${PROJECT_NAME}_test
+  test/main.cpp
+)
+
+target_link_libraries(${PROJECT_NAME}_test
+  ${PROJECT_NAME}
+  rclcpp::rclcpp
+  Python3::Python
+  Python3::NumPy
+  casadi
+  general_modules::general_modules
+)
+
+ament_target_dependencies(${PROJECT_NAME}_test)
+
+install(TARGETS ${PROJECT_NAME}
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
+)
+
+install(TARGETS
+  ${PROJECT_NAME}_test
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(DIRECTORY
+  include/
+  DESTINATION include/
+)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)

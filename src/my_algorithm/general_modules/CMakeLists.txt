@@ -42,6 +42,7 @@ add_library(${PROJECT_NAME} STATIC
   src/polynomial_curve.cpp
   src/collision_detection.cpp
   src/common_types.cpp
+  src/cilqr.cpp
 )
 
 # 设置头文件路径（对库本身）

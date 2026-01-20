@@ -50,17 +50,18 @@ struct FrenetPoint {
 // 车辆参数结构体
 struct VehicleParams {
     VehicleParams() : mass(1845.0), lf(1.426), lr(1.426), iz(3751.6), cf(155494.663),
-                      cr(155494.663), max_steer(1.0), max_accel(4.0), max_decel(6.0), width(2.0) {}
-    double mass;
-    double lf;
-    double lr;
-    double iz;
-    double cf;
-    double cr;
-    double max_steer;
-    double max_accel;
-    double max_decel;
-    double width;
+                      cr(155494.663), max_steer(1.0), max_accel(4.0), max_decel(6.0), width(2.0), length(4.5) {}
+    double mass; // 车辆质量(kg)
+    double lf;   // 前轴到质心距离(m)
+    double lr;   // 后轴到质心距离(m)
+    double iz;   // 车辆绕z轴转动惯量(kg*m^2)
+    double cf;   // 前轮侧偏刚度(N/rad)
+    double cr;   // 后轮侧偏刚度(N/rad)
+    double max_steer;  // 最大转向角(rad)
+    double max_accel;  // 最大加速度(m/s^2)
+    double max_decel;  // 最大减速度(m/s^2)
+    double width;   // 车辆宽度(m)
+    double length;  // 车辆长度(m)
 };
 
 struct VehicleState {
@@ -92,6 +93,7 @@ struct VehicleState {
     VehicleState& operator=(const VehicleState& other);
 };
 
+// 笛卡尔障碍物表示
 struct Obstacle {
     std::uint32_t id;
     double x;

@@ -402,13 +402,10 @@ std::shared_ptr<Polygon2d> CollisionDetection::get_bounding_box(const Vec2d &cen
 }
 
 std::shared_ptr<Polygon2d> CollisionDetection::get_bounding_box(const TrajectoryPoint &trj_point,const VehicleParams &vehicle_params){
-    // Compute rectangle center by shifting from the trajectory point based on vehicle geometry
-    double length = vehicle_params.lf + vehicle_params.lr;
+    // 假设轨迹点就是以质心为参考点，不对需要外部调整
+    double length = vehicle_params.length;
     double width = vehicle_params.width;
-    double shift_distance = length / 2.0 - vehicle_params.lr; // shift from rear-axle to geometric center
-    double cos_heading = std::cos(trj_point.heading);
-    double sin_heading = std::sin(trj_point.heading);
-    Vec2d center{trj_point.x + shift_distance * cos_heading, trj_point.y + shift_distance * sin_heading};
+    Vec2d center{trj_point.x , trj_point.y};
     return get_bounding_box(center, length, width, trj_point.heading);
 }
 

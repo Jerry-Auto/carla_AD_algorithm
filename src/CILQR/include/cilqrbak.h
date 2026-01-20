@@ -70,40 +70,30 @@ private:
     // 代价函数指针，方便用户自定义代价函数
     std::shared_ptr<cost_base> cost_func_;
     std::shared_ptr<cilqr_params> params_;
-
-    // 直接把[x, u]合并成z来定义函数，方便求导
+    
 
     // 定义动力学相关函数接口方便调用
-    casadi::Function f_, f_jacobian_,f_hessian_;
+    casadi::Function f_, f_x_, f_u_,f_xx_,f_uu_,f_ux_;
     // 定义代价函数相关接口方便调用
-    casadi::Function l_, l_jacobian_, l_hessian_;
+    casadi::Function l_, l_x_, l_u_, l_xx_, l_ux_, l_uu_;
     // 终端代价函数及其一阶/二阶导数函数
     casadi::Function terminal_l_, terminal_l_x_, terminal_l_xx_;
     // 定义约束相关函数，使用障碍函数时，就是除了乘子之后的log项,使用ALM时，就是原始约束函数，同时另外加外点罚函数导数
-    casadi::Function c_, c_jacobian_, c_hessian_;
+    casadi::Function c_, c_x_, c_u_, c_xx_, c_uu_, c_ux_;
     // 使用ALM时，存储外点罚函数项的函数及导数
-    casadi::Function alm_c_, alm_c_jacobian_, alm_c_hessian_;
+    casadi::Function alm_c_, alm_c_x_, alm_c_u_, alm_c_xx_, alm_c_uu_, alm_c_ux_;
 
-
-    // 另外增加合并的 Jacobian/Hessian 块存储，用来按 z=[x;u] 的形式整体存储并加速求导
-    Eigen::MatrixXd l_grad_vals_, l_hess_vals_;           // l_grad: N x (nx+nu), l_hess: N x (n*n)
-    Eigen::MatrixXd f_jac_vals_, f_hess_vals_;           // f_jac: N x (nx*(n)), f_hess: N x (nx*(n*n))
-
-    // ALM存储乘子项代价函数导数，barrier存储障碍函数项代价函数导数（逐块表示）
-    Eigen::MatrixXd c_vals_;
-    // 约束的合并 Jacobian/Hessian 存储
-    Eigen::MatrixXd c_jac_vals_, c_hess_vals_;
-
-    // 使用ALM时，存储外点罚函数项的值及导数（逐块）
-    Eigen::MatrixXd alm_c_vals_;
-    // ALM 外点罚的合并 jac/hess 存储
-    Eigen::MatrixXd alm_c_jac_vals_, alm_c_hess_vals_;
-
-    // 存储拉格朗日乘子，时间步x约束个数
-    Eigen::MatrixXd alm_mu_, alm_mu_next_;
     // 所有时间步的状态、控制、扰动、反馈增益矩阵、价值函数一阶二阶导数
     Eigen::MatrixXd u_, x_, d_, K_, V_x_, V_xx_;
-    
+    // 存储原始代价函数导数信息
+    Eigen::MatrixXd l_x_vals_, l_u_vals_, l_xx_vals_, l_uu_vals_, l_ux_vals_, f_x_vals_, f_u_vals_;
+    // ALM存储乘子项代价函数导数，barrier存储障碍函数项代价函数导数
+    Eigen::MatrixXd c_vals_, c_x_vals_, c_u_vals_,c_xx_vals_,c_uu_vals_,c_ux_vals_;
+    // 使用ALM时，存储外点罚函数项的值及导数
+    Eigen::MatrixXd alm_c_vals_, alm_c_x_vals_, alm_c_u_vals_,alm_c_xx_vals_,alm_c_uu_vals_,alm_c_ux_vals_;
+    // 存储拉格朗日乘子，时间步x约束个数
+    Eigen::MatrixXd alm_mu_, alm_mu_next_;
+
 
     int N_, nx_, nu_, num_c_;
     // ALM parameters
@@ -145,8 +135,11 @@ private:
     void forward_pass();
     // 线搜索
     bool linear_search(double alpha);
-    // 组合代价函数项（以 z=[x;u] 为整体），在此函数中将 ALM / Barrier 的贡献累加到 l_grad / l_hess 上
-    void compose_l_derivatives(Eigen::VectorXd &l_grad, Eigen::MatrixXd &l_hess, int k) const;
+    // 组合代价函数项，使用障碍函数法或者ALM法
+    void compose_l_derivatives(
+        Eigen::VectorXd &l_x,Eigen::VectorXd &l_u,
+        Eigen::VectorXd &l_xx,Eigen::VectorXd &l_uu,
+        Eigen::VectorXd &l_ux,int k) const;
 };
 
 
