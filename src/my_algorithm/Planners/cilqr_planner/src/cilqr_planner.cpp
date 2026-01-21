@@ -5,13 +5,48 @@ namespace AD_algorithm {
 namespace planner {
 
 cilqrPlanner::cilqrPlanner() : PlannerBase("CilqrPlanner") {
-    log("INFO", "[DEBUG] cilqrPlanner constructor start");
     // 初始化problem和solver
-    log("INFO", "[DEBUG] Creating problem...");
-    cilqr_problem_ = std::make_shared<problem>();
-    log("INFO", "[DEBUG] Creating solver...");
-    cilqr_solver_ = std::make_shared<general::cilqr>(cilqr_problem_);
-    log("INFO", "[DEBUG] cilqrPlanner constructor end");
+    planner_params_ = std::make_shared<CILQRPlannerparams>();
+    log("INFO","Creating problem...");
+    cilqr_problem_ = std::make_shared<planner_problem>(planner_params_);
+    cilqr_solver_ = std::make_shared<general::ILQR>(cilqr_problem_);
+    log("INFO","cilqrPlanner constructed");
+}
+void cilqrPlanner::set_initial_state(Eigen::VectorXd x0){
+    cilqr_solver_->set_initial_state(x0);
+}
+void cilqrPlanner::set_obstacles(const std::vector<general::Obstacle>& obstacles){
+    cilqr_problem_->set_obstacles(obstacles);
+}
+void cilqrPlanner::set_reference_speed(double reference_speed){
+    cilqr_problem_->set_reference_speed(reference_speed);
+}
+void cilqrPlanner::set_road_bounds(const double& lower_bound, const double& upper_bound){
+    cilqr_problem_->set_road_bounds(lower_bound, upper_bound);
+}
+void cilqrPlanner::set_cost_weights(const Eigen::MatrixXd& Q, const Eigen::MatrixXd& R, const Eigen::MatrixXd& Qf){
+    cilqr_problem_->set_cost_weights(Q, R, Qf);
+}
+void cilqrPlanner::solve(){
+    cilqr_solver_->solve();
+}
+std::vector<general::TrajectoryPoint>  cilqrPlanner::get_trajectory(double current_time){
+    const Eigen::MatrixXd& x = cilqr_solver_->get_x();
+    const Eigen::MatrixXd& u = cilqr_solver_->get_u();
+    std::vector<general::TrajectoryPoint> trajectory;
+    for (int i = 0; i < x.rows(); ++i) {
+        general::TrajectoryPoint point;
+        point.x = x(i, 0);
+        point.y = x(i, 1);
+        point.heading = x(i, 2);
+        point.v = x(i, 3);
+        point.time_stamped = current_time + i * planner_params_->ilqr_params->dt;
+        if (i < u.rows()) {
+            point.a_tau = u(i, 1);  // 加速度
+        }
+        trajectory.push_back(point);
+    }
+    return trajectory;
 }
 
 std::vector<general::TrajectoryPoint> cilqrPlanner::plan(
@@ -22,91 +57,45 @@ std::vector<general::TrajectoryPoint> cilqrPlanner::plan(
     // 设置初始状态
     Eigen::VectorXd x0(4);
     x0 << ego_state->x, ego_state->y, ego_state->heading, ego_state->v;
-    cilqr_solver_->set_initial_state(x0);
-
-    // 生成参考轨迹（基于全局参考线）
-    std::vector<general::TrajectoryPoint> ref_trajectory;
-    // 假设全局参考线已设置，生成未来N步的参考点
-    if (global_frenet_frame_) {
-        general::FrenetPoint ego_frenet_point = global_frenet_frame_->cartesian_to_frenet(*ego_state);
-        double s0 = ego_frenet_point.s;
-        log("INFO", "轨迹点数：", s0);
-        for (int i = 0; i <= cilqr_solver_->get_parameters().N; ++i) {
-            double t = current_time + i * cilqr_solver_->get_parameters().dt;
-            double s = s0 + reference_speed * i * cilqr_solver_->get_parameters().dt;
-            
-            general::FrenetPoint ref_frenet;
-            ref_frenet.s = s;
-            ref_frenet.l = 0.0;
-            ref_frenet.s_dot = reference_speed;
-            ref_frenet.s_dot_dot = 0.0;
-            ref_frenet.l_dot = 0.0;
-            ref_frenet.l_dot_dot = 0.0;
-            ref_frenet.l_prime = 0.0;
-            ref_frenet.l_prime_prime = 0.0;
-
-            general::TrajectoryPoint point = global_frenet_frame_->frenet_to_cartesian(ref_frenet);
-            point.v = reference_speed;
-            point.time_stamped = t;
-            ref_trajectory.push_back(point);
-        }
-    }
-
-    // 设置参考轨迹和障碍物到problem
-    cilqr_problem_->set_reference_trajectory(ref_trajectory);
-    cilqr_problem_->set_obstacle_list(obstacles);
-
+    log("INFO","设置初始状态: x=", x0[0], ", y=", x0[1], ", heading=", x0[2], ", v=", x0[3]);
+    set_initial_state(x0);
+    log("INFO","设置障碍物数量:", obstacles.size());
+    set_obstacles(obstacles);
+    log("INFO","设置参考速度:", reference_speed);
+    set_reference_speed(reference_speed);
+    // 分别是位置误差权重，速度误差权重，航向误差权重
+    Eigen::MatrixXd Q = Eigen::Vector4d(1.0, 1.0, 10000, 1000).asDiagonal();
+    Eigen::MatrixXd R = Eigen::Vector2d(0.01, 0.1).asDiagonal();
+    Eigen::MatrixXd Qf = Eigen::Vector4d(1.0, 1.0, 10.0, 1000.0).asDiagonal();
+    set_cost_weights(Q, R, Qf);
+    log("INFO","开始求解CILQR问题...");
     // 求解
-    cilqr_solver_->solve();
-
-    // 获取结果
-    const Eigen::MatrixXd& u = cilqr_solver_->get_u();
-    const Eigen::MatrixXd& x = cilqr_solver_->get_x();
-
+    solve();
     // 转换为TrajectoryPoint
-    std::vector<general::TrajectoryPoint> trajectory;
-    for (int i = 0; i < x.rows(); ++i) {
-        general::TrajectoryPoint point;
-        point.x = x(i, 0);
-        point.y = x(i, 1);
-        point.heading = x(i, 2);
-        point.v = x(i, 3);
-        point.time_stamped = current_time + i * cilqr_solver_->get_parameters().dt;
-        if (i < u.rows()) {
-            point.a_tau = u(i, 1);  // 加速度
-        }
-        trajectory.push_back(point);
-    }
-
+    std::vector<general::TrajectoryPoint> trajectory=get_trajectory(current_time);
+    log("INFO","规划完成，轨迹点数量:", trajectory.size());
+    last_trajectory_=trajectory;
     return trajectory;
 }
 
 bool cilqrPlanner::setGlobalReferenceLine(const std::vector<general::PathPoint>& reference_line) {
   if (reference_line.size() < 2) {
-    log("Failed to set reference line: too few points");
+    log("INFO","Failed to set reference line: too few points");
     return false;
   }
 
   // 缓存参考路径并构建 FrenetFrame（参考 EMPlanner 的实现）
   try {
     global_frenet_frame_ = std::make_shared<AD_algorithm::general::FrenetFrame>(reference_line);
+    cilqr_problem_->set_frenet_frame(global_frenet_frame_);
     // cache the reference line for later use in Combine/visualization
-    log("Global reference line set (", reference_line.size(), " points)");
+    log("INFO","Global reference line set (", reference_line.size(), " points)");
     return true;
   } catch (const std::exception& e) {
-    log("Exception while constructing FrenetFrame: ", e.what());
+    log("INFO","Exception while constructing FrenetFrame: ", e.what());
     global_frenet_frame_.reset();
     return false;
   }
-}
-
-void cilqrPlanner::setPlannerParams(const AD_algorithm::general::cilqr_params& params) {
-    // 其他参数...
-    auto params_ptr = std::make_shared<AD_algorithm::general::cilqr_params>(params);
-    cilqr_problem_->set_params(params_ptr);
-    if (cilqr_solver_) {
-        cilqr_solver_->set_params(params_ptr);
-    }
 }
 
 bool cilqrPlanner::isTrajectoryValid(
@@ -120,11 +109,11 @@ bool cilqrPlanner::isTrajectoryValid(
     // 添加更多验证逻辑，如速度、加速度限制等
     return true;
 }
-
 void cilqrPlanner::set_log_enable(bool enable) {
     PlannerBase::set_log_enable(enable);
-    // 如果 solver 支持日志，也可以在这里开启
-    // if (cilqr_solver_) cilqr_solver_->set_log_enable(enable);
+    if (cilqr_solver_) {
+        cilqr_solver_->set_log_enable(enable);
+    }
 }
 
 std::vector<std::vector<general::TrajectoryPoint>> cilqrPlanner::GetExtralTraj() {

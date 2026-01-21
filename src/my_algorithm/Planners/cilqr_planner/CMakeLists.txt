@@ -43,6 +43,10 @@ target_link_libraries(${PROJECT_NAME}
   general_modules::general_modules
 )
 
+set_target_properties(${PROJECT_NAME} PROPERTIES
+  INSTALL_RPATH "/usr/local/lib"
+)
+
 ament_target_dependencies(${PROJECT_NAME})
 
 # Test executable
@@ -59,7 +63,32 @@ target_link_libraries(${PROJECT_NAME}_test
   general_modules::general_modules
 )
 
+set_target_properties(${PROJECT_NAME}_test PROPERTIES
+  INSTALL_RPATH "/usr/local/lib"
+)
+
 ament_target_dependencies(${PROJECT_NAME}_test)
+
+
+set(test_cost "test_cost_define")
+# Test executable
+add_executable(${test_cost}
+  test/test_simple.cpp
+)
+
+target_link_libraries(${test_cost}
+  ${PROJECT_NAME}
+  rclcpp::rclcpp
+  Python3::Python
+  Python3::NumPy
+  casadi
+  general_modules::general_modules
+)
+
+set_target_properties(${test_cost} PROPERTIES
+  INSTALL_RPATH "/usr/local/lib"
+)
+ament_target_dependencies(${test_cost})
 
 install(TARGETS ${PROJECT_NAME}
   ARCHIVE DESTINATION lib
@@ -69,6 +98,10 @@ install(TARGETS ${PROJECT_NAME}
 
 install(TARGETS
   ${PROJECT_NAME}_test
+  DESTINATION lib/${PROJECT_NAME}
+)
+install(TARGETS
+  ${test_cost}
   DESTINATION lib/${PROJECT_NAME}
 )
 

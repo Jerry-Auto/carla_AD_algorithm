@@ -27,7 +27,7 @@ std::vector<TrajectoryPoint> generateFinalTraj();
 std::vector<std::vector<TrajectoryPoint>> generateSampleTrajs(); 
 
 int main(int argc, char ** argv) {
-    // test_visualize(argc,argv);
+    test_visualize(argc,argv);
     test_frenet_frame();
     return 0;
 }

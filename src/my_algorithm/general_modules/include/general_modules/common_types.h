@@ -49,8 +49,8 @@ struct FrenetPoint {
 
 // 车辆参数结构体
 struct VehicleParams {
-    VehicleParams() : mass(1845.0), lf(1.426), lr(1.426), iz(3751.6), cf(155494.663),
-                      cr(155494.663), max_steer(1.0), max_accel(4.0), max_decel(6.0), width(2.0), length(4.5) {}
+    VehicleParams() : mass(1845.0), lf(1.426), lr(1.426), iz(3751.6), cf(155494.663),cr(155494.663), 
+    max_steer(1.0), max_accel(4.0), max_decel(6.0), width(2.0), length(4.5), safety_distance(0.5) {}
     double mass; // 车辆质量(kg)
     double lf;   // 前轴到质心距离(m)
     double lr;   // 后轴到质心距离(m)
@@ -62,6 +62,7 @@ struct VehicleParams {
     double max_decel;  // 最大减速度(m/s^2)
     double width;   // 车辆宽度(m)
     double length;  // 车辆长度(m)
+    double safety_distance ; // 车辆安全距离(m)
 };
 
 struct VehicleState {

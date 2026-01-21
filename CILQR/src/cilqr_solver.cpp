@@ -436,7 +436,7 @@ std::tuple<Eigen::MatrixX2d, Eigen::MatrixX4d, Eigen::Vector2d> CILQRSolver::bac
         delta_V[0] += (0.5 * d.row(i) * Q_uu * d.row(i).transpose())(0, 0);
         delta_V[1] += (d.row(i) * Q_u)(0, 0);
     }
-
+    
     return std::tuple(d, K, delta_V);
 }
 

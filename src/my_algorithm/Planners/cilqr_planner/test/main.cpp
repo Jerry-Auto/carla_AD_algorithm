@@ -179,13 +179,8 @@ int main() {
     // 1. 创建规划器
     std::cout << "Creating cilqr planner..." << std::endl;
     cilqrPlanner planner;
-
-    cilqr_params params;
-    // CILQR 不使用这些参数，但保持兼容
-    params.N = 50;  // 预测步数
-    params.dt = 0.1;  // 时间步长
-
-    planner.setPlannerParams(params);
+    std::cout << "Planner created successfully!" << std::endl;
+    
 
     // 2. 参考线
     std::cout << "Generating curved reference line..." << std::endl;
@@ -201,7 +196,7 @@ int main() {
     ego->x = reference_path[0].x + 1.0;   // 向右偏1米
     ego->y = reference_path[0].y - 0.5;   // 向下偏0.5米
     ego->heading = reference_path[0].heading - 0.1; // 航向略偏左
-    ego->v = 2.0;
+    ego->v = 1.0;
     ego->ax = 0.0;
     ego->ay = 0.0;
     ego->id = 1;
@@ -215,7 +210,7 @@ int main() {
         general::Obstacle obs_right; obs_right.id = 105; obs_right.x = 150.0; obs_right.y = -2.0; obs_right.vx = 0.0; obs_right.vy = 0.0; obs_right.length = 4.5; obs_right.width = 2.0; obstacles.push_back(obs_right);
     }
 
-    double reference_speed = 8.0;
+    double reference_speed = 5.0;
     double current_time = 0.0;
 
     // 4. 首次规划
@@ -242,9 +237,9 @@ int main() {
     std::normal_distribution<double> speed_noise(0.0, 0.2);
     std::normal_distribution<double> heading_noise(0.0, 0.03);
 
-    const int total_cycles = 10;  // 减少循环次数以适应CILQR
+    const int total_cycles =50;  // 减少循环次数以适应CILQR
+    double dt_cycle = 1.0;        // 每次规划间隔1秒
     for (int cycle = 1; cycle <= total_cycles; ++cycle) {
-        double dt_cycle = 0.4;
         double target_time = current_time + dt_cycle;
         general::FrenetFrame ref_trj(trajectory);
         auto trj_msg = ref_trj.get_matched_trj_point(target_time);

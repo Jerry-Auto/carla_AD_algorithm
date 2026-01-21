@@ -1,601 +1,296 @@
 #include "general_modules/cilqr.h"
 #include <casadi/casadi.hpp>
 #include <vector>
+#include <chrono>
 #include <Eigen/Dense>
 #include <iostream>
 #include <string>
 
 namespace AD_algorithm {
 namespace general {
+    ILQR::ILQR(std::shared_ptr<cost_factory> cost_factory) : logger_(std::make_shared<AD_algorithm::general::Logger>("CILQR")) {
+        cost_factory_ = cost_factory;
+        // 参数由具体问题定义类提供
+        params_ = cost_factory_->get_params();
+        x_ = Eigen::MatrixXd::Zero(params_->N + 1, params_->nx);
+        u_ = Eigen::MatrixXd::Zero(params_->N, params_->nu);
+        new_x_ = Eigen::MatrixXd::Zero(params_->N + 1, params_->nx);
+        new_u_ = Eigen::MatrixXd::Zero(params_->N, params_->nu);
+        d_ = Eigen::MatrixXd::Zero(params_->N, params_->nu);
+        K_ = Eigen::MatrixXd::Zero(params_->nu * params_->N, params_->nx);
+        V_x_ = Eigen::MatrixXd::Zero(params_->N + 1, params_->nx);
+        V_xx_ = Eigen::MatrixXd::Zero(params_->nx, params_->nx);
+        last_solve_u_ = Eigen::MatrixXd::Zero(params_->N, params_->nu);
+    }
 
-cilqr::cilqr(std::shared_ptr<cost_base> cost_func) : cost_func_(cost_func), params_(cost_func_->get_params()) {
-    logger_ = std::make_shared<AD_algorithm::general::Logger>("CILQR");
-    logger_->info("CILQR solver initializing...");
-    N_ = params_->N;
-    nx_ = params_->nx;
-    nu_ = params_->nu;
-    use_barrier_ = params_->use_Barrier;
-    alm_rho_ = params_->alm_rho_init;
-    alm_rho_init_ = params_->alm_rho_init;
-    alm_gamma_ = params_->alm_gamma;
-    max_rho_ = params_->max_rho;
-    max_mu_ = params_->max_mu;
-    barrier_beta_=params_->barrier_beta;
-    barrier_rho_=params_->barrier_rho_init;
-    alpha_ls_init_ = params_->alpha_ls_init;
-    beta_ls_ = params_->beta_ls;
-    init();
-}
-
-cilqr::~cilqr() {}
-
-cilqr_params cilqr::get_parameters() const {
-    return *params_;
-}
-
-void cilqr::set_params(const std::shared_ptr<cilqr_params>& params) {
-    params_ = params;
-    // 重新初始化以应用新参数
-    N_ = params_->N;
-    nx_ = params_->nx;
-    nu_ = params_->nu;
-    use_barrier_ = params_->use_Barrier;
-    alm_rho_ = params_->alm_rho_init;
-    alm_rho_init_ = params_->alm_rho_init;
-    alm_gamma_ = params_->alm_gamma;
-    max_rho_ = params_->max_rho;
-    max_mu_ = params_->max_mu;
-    barrier_beta_=params_->barrier_beta;
-    barrier_rho_=params_->barrier_rho_init;
-    alpha_ls_init_ = params_->alpha_ls_init;
-    beta_ls_ = params_->beta_ls;
-    init();
-}
-
-void cilqr::init() {
-    // Combined [x; u] form
-    casadi::SX z = casadi::SX::sym("z", nx_ + nu_);
-    casadi::SX state = z(casadi::Slice(0, nx_));
-    casadi::SX control = z(casadi::Slice(nx_, nx_ + nu_));
-    casadi::SX k=casadi::SX::sym("k",1); // time index for constraints
-    // Dynamics
-    casadi::SX next_state = cost_func_->dynamics(state, control);
-    f_ = casadi::Function("f", std::vector<casadi::SX>{z, k}, std::vector<casadi::SX>{next_state});
-    
-    casadi::SX f_jac_sx = casadi::SX::jacobian(next_state, z);
-    f_jacobian_ = casadi::Function("f_jac", std::vector<casadi::SX>{z}, std::vector<casadi::SX>{f_jac_sx});
-    
-    // Partial derivative for DDP: d(v^T * f)/dz = v^T * df/dz. Hessian = d(df/dz^T * v)/dz
-    // Equivalent to SX::hessian(dot(next_state, v), z)
-    casadi::SX v_x = casadi::SX::sym("v_x", nx_);
-    casadi::SX f_weighted = casadi::SX::dot(v_x, next_state);
-    casadi::SX f_hess_sx = casadi::SX::hessian(f_weighted, z);
-    f_hessian_ = casadi::Function("f_hess", std::vector<casadi::SX>{z, v_x}, std::vector<casadi::SX>{f_hess_sx});
-    
-    // Cost functions
-    casadi::SX l_stage = cost_func_->cost_function(state, control,k);
-    l_ = casadi::Function("l", std::vector<casadi::SX>{z,k}, std::vector<casadi::SX>{l_stage});
-    
-    casadi::SX l_jac_sx = casadi::SX::jacobian(l_stage, z);
-    l_jacobian_ = casadi::Function("l_jac", std::vector<casadi::SX>{z,k}, std::vector<casadi::SX>{l_jac_sx});
-    
-    casadi::SX l_hess_sx = casadi::SX::hessian(l_stage, z);
-    l_hessian_ = casadi::Function("l_hess", std::vector<casadi::SX>{z,k}, std::vector<casadi::SX>{l_hess_sx});
-
-
-    // Terminal cost
-    casadi::SX term_state = casadi::SX::sym("term_state", nx_);
-    casadi::SX l_term = cost_func_->terminal_cost(term_state);
-    terminal_l_ = casadi::Function("terminal_l", std::vector<casadi::SX>{term_state}, std::vector<casadi::SX>{l_term});
-    
-    casadi::SX term_jac_sx = casadi::SX::jacobian(l_term, term_state);
-    terminal_l_x_ = casadi::Function("term_l_x", std::vector<casadi::SX>{term_state}, std::vector<casadi::SX>{term_jac_sx});
-    
-    casadi::SX term_hess_sx = casadi::SX::hessian(l_term, term_state);
-    terminal_l_xx_ = casadi::Function("term_l_xx", std::vector<casadi::SX>{term_state}, std::vector<casadi::SX>{term_hess_sx});
-
-    // Constraints (for ALM). Infer constraint count
-    casadi::SX c_vec = cost_func_->constraints(state, control,k);
-    c_ = casadi::Function("c", std::vector<casadi::SX>{z,k}, std::vector<casadi::SX>{c_vec});
-    
-    try {
-        casadi::DM z0_dm = casadi::DM::zeros(nx_ + nu_, 1);
-        casadi::DM k0_dm = casadi::DM::zeros(1,1);
-        auto c0 = c_(std::vector<casadi::DM>{z0_dm,k0_dm});
-        if (c0.size() > 0) {
-            casadi::DM c0dm = c0[0];
-            if (c0dm.size2() == 1) {
-                num_c_ = static_cast<int>(c0dm.size1());
-            } else {
-                num_c_ = static_cast<int>(c0dm.numel());
+    void ILQR::set_initial_state(const Eigen::VectorXd& x0) { 
+        if (x0.size() == params_->nx) {
+            if (x_.rows() != params_->N + 1 || x_.cols() != params_->nx) {
+                x_ = Eigen::MatrixXd::Zero(params_->N + 1, params_->nx);
             }
+            log("INFO","Setting initial state");
+            x_.row(0) = x0.transpose();
         } else {
-            num_c_ = 0;
+            log("ERROR","Initial state dimension mismatch");
         }
-    } catch (...) {
-        num_c_ = 0;
     }
 
-    // Build constraint cost vector functions for barrier and ALM
-    if (num_c_ > 0) {
-        // 定义每个时间步的约束代价向量函数和累加函数
-        casadi::SX rho_b = casadi::SX::sym("rho_b", 1);
-        casadi::SX mu_vec = casadi::SX::sym("mu_vec", num_c_);
-        casadi::SX rho_alm = casadi::SX::sym("rho_alm", 1);
-
-        // 障碍函数的向量形式
-        casadi::SX barrier_cost_vec = rho_b * (-casadi::SX::log(-c_vec));
-        cost_vec_barrier_ = casadi::Function(
-            "cost_vec_barrier", std::vector<casadi::SX>{z, k, rho_b},
-            std::vector<casadi::SX>{barrier_cost_vec});
-        
-        // ALM的向量形式
-        casadi::SX pos_c = casadi::SX::fmax(0.0, c_vec + mu_vec / rho_alm);
-        casadi::SX alm_cost_vec = mu_vec * c_vec + rho_alm * 0.5 * casadi::SX::pow(pos_c, 2);
-        cost_vec_alm_ = casadi::Function(
-            "cost_vec_alm", std::vector<casadi::SX>{z, k, mu_vec, rho_alm},
-            std::vector<casadi::SX>{alm_cost_vec});
-        
-        // 障碍函数的累加形式，输出是标量
-        casadi::SX barrier_cost_sum = casadi::SX::sum1(barrier_cost_vec);
-        cost_sum_barrier_ = casadi::Function(
-            "cost_sum_barrier", std::vector<casadi::SX>{z, k, rho_b},
-            std::vector<casadi::SX>{barrier_cost_sum});
-
-        // Jacobian，是一个向量
-        casadi::SX barrier_jac = casadi::SX::jacobian(barrier_cost_sum, z);
-        cost_sum_barrier_jac_ = casadi::Function(
-            "cost_sum_barrier_jac", std::vector<casadi::SX>{z, k, rho_b},
-            std::vector<casadi::SX>{barrier_jac});
-
-        // Hessian，是一个矩阵
-        casadi::SX barrier_hess = casadi::SX::jacobian(barrier_jac, z);
-        cost_sum_barrier_hess_ = casadi::Function(
-            "cost_sum_barrier_hess", std::vector<casadi::SX>{z, k, rho_b},
-            std::vector<casadi::SX>{barrier_hess});
-
-        // ALM的累加形式
-        casadi::SX alm_cost_sum = casadi::SX::sum1(alm_cost_vec);
-        cost_sum_alm_ = casadi::Function(
-            "cost_sum_alm", std::vector<casadi::SX>{z, k, mu_vec, rho_alm},
-            std::vector<casadi::SX>{alm_cost_sum});
-        // Jacobian，是一个向量
-        casadi::SX alm_jac = casadi::SX::jacobian(alm_cost_sum, z);
-        cost_sum_alm_jac_ = casadi::Function(
-            "cost_sum_alm_jac", std::vector<casadi::SX>{z, k, mu_vec, rho_alm},
-            std::vector<casadi::SX>{alm_jac});
-        // Hessian，是一个矩阵
-        casadi::SX alm_hess = casadi::SX::jacobian(alm_jac, z);
-        cost_sum_alm_hess_ = casadi::Function(
-            "cost_sum_alm_hess", std::vector<casadi::SX>{z, k, mu_vec, rho_alm},
-            std::vector<casadi::SX>{alm_hess});
+    void ILQR::get_init_traj() {
+        // 实现首次运行时的初始轨迹生成逻辑
+        u_.setZero();
+        // Ensure the first state x_.row(0) has been set by the caller via set_initial_state
+        for (int i = 0; i < params_->N; ++i) {
+            Eigen::RowVectorXd z_row(params_->nx + params_->nu);
+            z_row << x_.row(i), u_.row(i);
+            auto next_state = cost_factory_->state_transition(Eigen::VectorXd(z_row.transpose()));
+            x_.row(i + 1) = next_state.transpose();
+        }
     }
 
-    // Initialize matrices
-    u_ = Eigen::MatrixXd::Zero(N_, nu_);
-    x_ = Eigen::MatrixXd::Zero(N_+1, nx_);
-    d_ = Eigen::MatrixXd::Zero(N_, nu_);
-    K_ = Eigen::MatrixXd::Zero(N_, nu_*nx_);
+    void ILQR::get_init_traj_increment() {
+        // 实现非首次运行时的初始轨迹生成逻辑,逻辑是将上次控制向前平移一位，最后一位保持不变
+        // 行代表时间步，列代表控制维度
+        Eigen::MatrixXd new_u = Eigen::MatrixXd::Zero(params_->N, params_->nu);
+        if (u_.rows() == params_->N && u_.cols() == params_->nu) {
+            if (params_->N > 1) {
+                // block的用法：block(start_row, start_col, num_rows, num_cols)，两个block赋值，后面两位必须相等
+                // 这里表示将旧的控制序列的第1行到第N_-1行复制到新的控制序列的第0行到第N_-2行，列全选
+                new_u.block(0, 0, params_->N - 1, params_->nu) = last_solve_u_.block(1, 0, params_->N - 1, params_->nu);
+                new_u.row(params_->N - 1) = last_solve_u_.row(params_->N - 1);
+            } else {
+                new_u.row(0) = last_solve_u_.row(0);
+            }
+        }
+        u_ = new_u;
 
-    V_x_ = Eigen::MatrixXd::Zero(nx_, 1);
-    V_xx_ = Eigen::MatrixXd::Zero(nx_, nx_);
-
-    // per-block storages (kept for compatibility)
-    l_grad_vals_ = Eigen::MatrixXd::Zero(N_, nx_ + nu_);
-    l_hess_vals_ = Eigen::MatrixXd::Zero(N_, (nx_ + nu_) * (nx_ + nu_));
-
-    f_jac_vals_ = Eigen::MatrixXd::Zero(N_, nx_ * (nx_ + nu_));
-    f_hess_vals_ = Eigen::MatrixXd::Zero(N_, nx_ * (nx_ + nu_) * (nx_ + nu_));
-
-    c_vals_ = Eigen::MatrixXd::Zero(N_, num_c_);
-    c_jac_vals_ = Eigen::MatrixXd::Zero(N_, num_c_ * (nx_ + nu_));
-    c_hess_vals_ = Eigen::MatrixXd::Zero(N_, num_c_ * (nx_ + nu_) * (nx_ + nu_));
-
-    if(!params_->use_Barrier) { 
-        alm_mu_ = Eigen::MatrixXd::Zero(N_, num_c_);
-        alm_mu_next_ = Eigen::MatrixXd::Zero(N_, num_c_);
+        // Forward propagate states using f_
+        for (int i = 0; i < params_->N; ++i) {
+            Eigen::RowVectorXd z_row(params_->nx + params_->nu);
+            z_row << x_.row(i), u_.row(i);
+            auto next_state = cost_factory_->state_transition(Eigen::VectorXd(z_row.transpose()));
+            x_.row(i + 1) = next_state.transpose();
+        }
     }
-}
-
-
-void cilqr::get_init_traj() {
-    // Initialize controls to zero and propagate states using the learned dynamics f_
-    u_.setZero();
-    // Ensure the first state x_.row(0) has been set by the caller via set_initial_state
-    for (int i = 0; i < N_; ++i) {
-        Eigen::RowVectorXd z_row(nx_ + nu_);
-        z_row << x_.row(i), u_.row(i);
-        casadi::DM k_dm = casadi::DM(i); // time index for constraints
-        auto next_res = f_(std::vector<casadi::DM>{casadi::DM(std::vector<double>(z_row.data(), z_row.data() + z_row.size())), k_dm});
-        Eigen::Map<Eigen::VectorXd> next_x_vec(next_res[0].ptr(), nx_);
-        x_.row(i + 1) = next_x_vec.transpose();
-    }
-}
-
-void cilqr::get_init_traj_increment() {
-    // Shift previous control forward by one step and keep the last control as-is
-    Eigen::MatrixXd new_u = Eigen::MatrixXd::Zero(N_, nu_);
-    if (u_.rows() == N_ && u_.cols() == nu_) {
-        if (N_ > 1) {
-            new_u.block(0, 0, N_ - 1, nu_) = u_.block(1, 0, N_ - 1, nu_);
-            new_u.row(N_ - 1) = u_.row(N_ - 1);
+    void ILQR::solve() {
+        log("INFO","开始求解ILQR问题");
+        solve_status_ = LQRSolveStatus::RUNNING;
+        if(first_run_) {
+            first_run_ = false;
+            get_init_traj();
         } else {
-            new_u.row(0) = u_.row(0);
+            get_init_traj_increment();
         }
-    }
-    u_ = new_u;
+        log("INFO","初始轨迹生成完成");
+        // Build x_and_u matrix: N rows of [x_k, u_k], plus last row [x_N, zeros]
+        Eigen::MatrixXd x_and_u(params_->N + 1, params_->nx + params_->nu);
+        for (int k = 0; k < params_->N; ++k) {
+            x_and_u.row(k) << x_.row(k), u_.row(k);
+        }
+        x_and_u.row(params_->N) << x_.row(params_->N), Eigen::RowVectorXd::Zero(params_->nu);
+        prev_cost_ = cost_factory_->compute_total_cost(x_and_u);
+        log("INFO","初始总代价: ", prev_cost_);
 
-    // Forward propagate states using f_
-    for (int i = 0; i < N_; ++i) {
-        Eigen::RowVectorXd z_row(nx_ + nu_);
-        z_row << x_.row(i), u_.row(i);
-        casadi::DM k_dm = casadi::DM(i); // time index for constraints
-        auto next_res = f_(std::vector<casadi::DM>{casadi::DM(std::vector<double>(z_row.data(), z_row.data() + z_row.size())), k_dm});
-        Eigen::Map<Eigen::VectorXd> next_x_vec(next_res[0].ptr(), nx_);
-        x_.row(i + 1) = next_x_vec.transpose();
-    }
-}
-
-double cilqr::get_total_cost(const Eigen::MatrixXd& x, const Eigen::MatrixXd& u) {
-    double cost = 0.0;
-    for (int k = 0; k < N_; ++k) {
-        Eigen::RowVectorXd z_row(nx_ + nu_);
-        z_row << x.row(k), u.row(k);
-        casadi::DM z_row_dm(std::vector<double>(z_row.data(), z_row.data() + z_row.size()));
-        casadi::DM k_dm = casadi::DM(k); // time index for constraints
-        auto res = l_(std::vector<casadi::DM>{z_row_dm,k_dm});
-        cost += static_cast<double>(res[0]);
-
-        if (num_c_ > 0) {
-            if (!params_->use_Barrier) {
-                casadi::DM mu_dm(std::vector<double>(alm_mu_.row(k).data(), alm_mu_.row(k).data() + num_c_));
-                casadi::DM rho_dm(alm_rho_);
-                auto cost_sum_res =
-                    cost_sum_alm_(std::vector<casadi::DM>{z_row_dm, k_dm, mu_dm, rho_dm});
-                if (!cost_sum_res.empty()) {
-                    casadi::DM cost_sum_dm = casadi::DM::densify(cost_sum_res[0]);
-                    cost += static_cast<double>(cost_sum_dm(0));
-                }
-            } else {
-                casadi::DM rho_dm(barrier_rho_);
-                auto cost_sum_res =
-                    cost_sum_barrier_(std::vector<casadi::DM>{z_row_dm, k_dm, rho_dm});
-                if (!cost_sum_res.empty()) {
-                    casadi::DM cost_sum_dm = casadi::DM::densify(cost_sum_res[0]);
-                    cost += static_cast<double>(cost_sum_dm(0));
-                }
+        reg_ = params_->reg_init;
+        start_timer();
+        bool is_exceed_max_itr = true;
+        bool iter_effective_flag = false;
+        for (int itr = 0; itr < params_->max_iter; ++itr) {
+            // 如果前向或反向传播失败，增加正则化参数，更新乘子，同时使用上次的轨迹
+            cost_factory_->update(itr);
+            iter_effective_flag = iter_step();
+            if (solve_status_ == LQRSolveStatus::BACKWARD_PASS_FAIL ||
+                solve_status_ == LQRSolveStatus::FORWARD_PASS_FAIL) {
+                reg_ = std::max(reg_ * params_->reg_factor, params_->reg_max);
+                // SPDLOG_DEBUG("iter , increase mu to ", itr, reg_);
+            } else if (solve_status_ == LQRSolveStatus::RUNNING) {
+                reg_ *= params_->reg_factor;
+                // SPDLOG_DEBUG("iter , decrease mu to ", itr, reg_);
             }
-        }
-    }
-    Eigen::RowVectorXd x_N = x.row(N_);
-    auto term_res = terminal_l_(std::vector<casadi::DM>{casadi::DM(std::vector<double>(x_N.data(), x_N.data() + x_N.size()))});
-    cost += static_cast<double>(term_res[0]);
-    return cost;
-}
-
-void cilqr::get_cost_derivatives_and_Hessians() {
-    for (int k = 0; k < N_; ++k) {
-        // Use combined gradient/Hessian on z = [x; u], then split into blocks.
-        Eigen::RowVectorXd z_row(nx_ + nu_);
-        z_row << x_.row(k), u_.row(k);
-        casadi::DM z_row_dm(std::vector<double>(z_row.data(), z_row.data() + z_row.size()));
-        casadi::DM k_dm = casadi::DM(k); // time index for constraints
-
-        // l gradient / Hessian (scalar stage cost)
-        // CasADi calls require std::vector<double> -> DM conversion
-        auto l_grad_res = l_jacobian_(std::vector<casadi::DM>{z_row_dm, k_dm});
-        casadi::DM l_grad_dm = casadi::DM::densify(l_grad_res[0]);
-        Eigen::Map<Eigen::VectorXd> l_grad_vec(l_grad_dm.ptr(), nx_ + nu_);
-        l_grad_vals_.row(k) = l_grad_vec.transpose();
-
-        auto l_hess_res = l_hessian_(std::vector<casadi::DM>{z_row_dm, k_dm});
-        casadi::DM l_hess_dm = casadi::DM::densify(l_hess_res[0]);
-        Eigen::Map<Eigen::MatrixXd> l_hess_mat(l_hess_dm.ptr(), nx_ + nu_, nx_ + nu_);
-        Eigen::MatrixXd L = l_hess_mat;
-        // blocks: L = [ L_xx  L_xu;
-        //               L_ux  L_uu ] where L_xu is nx x nu and L_ux is nu x nx
-        l_hess_vals_.block(k, 0, 1, (nx_ + nu_) * (nx_ + nu_)) = Eigen::Map<Eigen::RowVectorXd>(L.data(), (nx_ + nu_) * (nx_ + nu_));
-        
-        // f Jacobian (nx x (nx+nu)) split into f_x and f_u
-        auto f_jac_res = f_jacobian_(std::vector<casadi::DM>{z_row_dm});
-        casadi::DM f_jac_dm = casadi::DM::densify(f_jac_res[0]);
-        Eigen::Map<Eigen::MatrixXd> f_jac_mat(f_jac_dm.ptr(), nx_, nx_ + nu_);
-        f_jac_vals_.block(k, 0, 1, nx_ * (nx_ + nu_)) = Eigen::Map<Eigen::RowVectorXd>(f_jac_mat.data(), nx_ * (nx_ + nu_));
-
-        // f Hessian computation (tensor contraction) is done in backward_pass if needed.
-        // if(params_->use_DDP) {
-        //     // 使用运动学模型的二阶导数信息
-        //     auto f_hess_res = f_hessian_(std::vector<casadi::DM>{z_row_dm});
-        //     casadi::DM f_hess_dm = casadi::DM::densify(f_hess_res[0]);
-        //     Eigen::Map<Eigen::MatrixXd> f_hess_mat(f_hess_dm.ptr(), nx_, (nx_ + nu_) * (nx_ + nu_));
-        //     f_hess_vals_.block(k, 0, 1, nx_ * (nx_ + nu_) * (nx_ + nu_)) = Eigen::Map<Eigen::RowVectorXd>(f_hess_mat.data(), nx_ * (nx_ + nu_) * (nx_ + nu_));
-        // }
-
-        if (num_c_ > 0) {
-            Eigen::VectorXd l_grad_k = l_grad_vals_.row(k).transpose();
-            Eigen::MatrixXd l_hess_k = Eigen::Map<Eigen::MatrixXd>(L.data(), nx_ + nu_, nx_ + nu_);
-
-            if (params_->use_Barrier) {
-                casadi::DM rho_dm(barrier_rho_);
-                auto grad_res = cost_sum_barrier_jac_(std::vector<casadi::DM>{z_row_dm, k_dm, rho_dm});
-                auto hess_res = cost_sum_barrier_hess_(std::vector<casadi::DM>{z_row_dm, k_dm, rho_dm});
-
-                if (!grad_res.empty()) {
-                    casadi::DM grad_dm = casadi::DM::densify(grad_res[0]);
-                    Eigen::Map<Eigen::VectorXd> grad_vec(grad_dm.ptr(), nx_ + nu_);
-                    l_grad_k += grad_vec;
-                }
-
-                if (!hess_res.empty()) {
-                    casadi::DM hess_dm = casadi::DM::densify(hess_res[0]);
-                    Eigen::Map<Eigen::MatrixXd> hess_mat(hess_dm.ptr(), nx_ + nu_, nx_ + nu_);
-                    l_hess_k += hess_mat;
-                }
-            } else {
-                casadi::DM mu_dm(std::vector<double>(alm_mu_.row(k).data(), alm_mu_.row(k).data() + num_c_));
-                casadi::DM rho_dm(alm_rho_);
-                auto grad_res = cost_sum_alm_jac_(std::vector<casadi::DM>{z_row_dm, k_dm, mu_dm, rho_dm});
-                auto hess_res = cost_sum_alm_hess_(std::vector<casadi::DM>{z_row_dm, k_dm, mu_dm, rho_dm});
-
-                if (!grad_res.empty()) {
-                    casadi::DM grad_dm = casadi::DM::densify(grad_res[0]);
-                    Eigen::Map<Eigen::VectorXd> grad_vec(grad_dm.ptr(), nx_ + nu_);
-                    l_grad_k += grad_vec;
-                }
-
-                if (!hess_res.empty()) {
-                    casadi::DM hess_dm = casadi::DM::densify(hess_res[0]);
-                    Eigen::Map<Eigen::MatrixXd> hess_mat(hess_dm.ptr(), nx_ + nu_, nx_ + nu_);
-                    l_hess_k += hess_mat;
-                }
-
-                // update constraint values for multiplier update
-                if (!c_.is_null()) {
-                    auto c_val_res = c_(std::vector<casadi::DM>{z_row_dm, k_dm});
-                    if (!c_val_res.empty()) {
-                        casadi::DM c_val_dm = casadi::DM::densify(c_val_res[0]);
-                        for (int i = 0; i < std::min(num_c_, static_cast<int>(c_val_dm.numel())); ++i) {
-                            c_vals_(k, i) = static_cast<double>(c_val_dm(i));
-                        }
-                    }
-                }
+            if (iter_effective_flag) {
+                x_ = new_x_;
+                u_ = new_u_;
             }
-
-            l_grad_vals_.row(k) = l_grad_k.transpose();
-            l_hess_vals_.block(k, 0, 1, (nx_ + nu_) * (nx_ + nu_)) =
-                Eigen::Map<Eigen::RowVectorXd>(l_hess_k.data(), (nx_ + nu_) * (nx_ + nu_));
-        }
-    }
-
-    // Terminal
-    Eigen::RowVectorXd x_N = x_.row(N_);
-    auto term_l_x_res = terminal_l_x_(std::vector<casadi::DM>{casadi::DM(std::vector<double>(x_N.data(), x_N.data() + x_N.size()))});
-    casadi::DM term_l_x_dm = casadi::DM::densify(term_l_x_res[0]);
-    Eigen::Map<Eigen::VectorXd> term_l_x_vec(term_l_x_dm.ptr(), nx_);
-    V_x_ = term_l_x_vec;
-
-    auto term_l_xx_res = terminal_l_xx_(std::vector<casadi::DM>{casadi::DM(std::vector<double>(x_N.data(), x_N.data() + x_N.size()))});
-    casadi::DM term_l_xx_dm = casadi::DM::densify(term_l_xx_res[0]);
-    Eigen::Map<Eigen::MatrixXd> term_l_xx_mat(term_l_xx_dm.ptr(), nx_, nx_);
-    V_xx_ = term_l_xx_mat;
-}
-
-void cilqr::solve() {
-    logger_->info("Starting solve()");
-    // Assume x0 is set; initialize trajectory using dynamics f_
-    get_init_traj();
-    logger_->info("get_init_traj done");
-    prev_cost_ = get_total_cost(x_, u_);
-    logger_->info("Initial total cost: {}", prev_cost_);
-    for (int iter = 0; iter < params_->max_iter; ++iter) {
-        logger_->info("Iteration: {}", iter);
-        if(!iter_step()) {
-            logger_->warn("Iteration step failed at iteration {}", iter);
-            break;
-        }
-        logger_->info("Iteration step {} done,cost {}", iter,curr_cost_);
-        // 代价函数下降得很小就停止
-        if (std::abs(curr_cost_ - prev_cost_) < params_->cost_tol) 
-        {
-            logger_->info("Cost change below tolerance, converged at iteration {}", iter);
-            break;
-        }
-        // 控制增量和状态增量都很小就停止
-        if (max_delta_u_ < params_->delta_u_tol && max_delta_x_ < params_->delta_x_tol) 
-        {
-            logger_->info("State and control changes below tolerance, converged at iteration {}", iter);
-            break;
-        }
-        prev_cost_ = curr_cost_;
-    }
-}
-
-bool cilqr::iter_step() {
-    logger_->info("Getting cost derivatives and Hessians");
-    get_cost_derivatives_and_Hessians();
-    logger_->info("Starting backward_pass");
-    double reg = params_->reg_init;
-    bool success = false;
-    while (true) {
-        if (backward_pass(reg)) {
-            logger_->info("Backward pass successful with reg {}", reg);
-            if (forward_pass()) {
-                logger_->info("Forward pass successful");
-                success = true;
+            
+            if (reg_ > params_->reg_max) {
+                double solve_cost_time = stop_timer();
+                log("WARN",
+                    "正则化参数达到最大值,迭代次数:"+std::to_string(itr)+",最终代价:"+std::to_string(prev_cost_)+", 计算时间"+std::to_string(solve_cost_time)+"ms");
+                is_exceed_max_itr = false;
+                break;
+            } else if (solve_status_ == LQRSolveStatus::CONVERGED) {
+                double solve_cost_time = stop_timer();
+                log("INFO",
+                    "优化已收敛, 最终代价:"+std::to_string(prev_cost_)+", 计算时间 "+std::to_string(solve_cost_time)+" ms");
+                is_exceed_max_itr = false;
                 break;
             }
         }
-        if(reg >= params_->reg_max){
-            logger_->warn("Regularization exceeded maximum limit during iter_step");
-            success = false;
-            break;
-        }
-        // Increase regularization and retry
-        reg = std::min(reg * params_->reg_factor, params_->reg_max);
-        logger_->info("Increasing regularization to {}", reg); 
-    }
-    if(success){
-        // Update ALM parameters
-        if (!params_->use_Barrier) {
-            // c_vals_就是代价对乘子的导数，增大步长，原理不可行域
-            alm_mu_next_ = (alm_mu_ + alm_rho_ * c_vals_).cwiseMax(0);
-            alm_mu_ = alm_mu_next_;
-            alm_rho_ = std::min(alm_gamma_ * alm_rho_, max_rho_);
-        }
-        else {
-            barrier_rho_ *= barrier_beta_; // 每次减小障碍函数系数，增大惩罚力度
-        }
-    }
-    return success;
-}
 
+        last_solve_u_ = u_;
 
-bool cilqr::backward_pass(double reg_init) {
-    double reg = reg_init;
-    for(int retry =0; retry < params_->max_reg_iter; ++retry){
+        if (is_exceed_max_itr) {
+            log("WARN","迭代次数达到最大值, 最终代价: "+std::to_string(prev_cost_));
+        }
+        double solve_cost_time = stop_timer();
+        log("INFO","求解完成，耗时 "+std::to_string(solve_cost_time)+" ms");
+    }
+
+    bool ILQR::iter_step() {
+        log("INFO","Starting backward_pass");
         bool success = false;
-        // 清空初始值
-        K_.setZero();
-        d_.setZero();
-        // 终端导数初始值
-        auto V_x_k= V_x_;
-        auto V_xx_k= V_xx_;
-        for (int i = N_-1; i >= 0; --i) {
-            // Retrieve Jacobian and reshape safely
-            Eigen::VectorXd f_jac_flat = f_jac_vals_.row(i);
-            Eigen::MatrixXd f_jaco = Eigen::Map<Eigen::MatrixXd>(f_jac_flat.data(), nx_, nx_ + nu_);
-            
-            // use combined gradient/hessian representation for l
-            // Retrieve L Hessian and reshape safely
-            Eigen::VectorXd l_hess_flat = l_hess_vals_.row(i);
-            Eigen::MatrixXd l_hess = Eigen::Map<Eigen::MatrixXd>(l_hess_flat.data(), nx_ + nu_, nx_ + nu_);
-            
-            Eigen::VectorXd l_grad = l_grad_vals_.row(i).transpose();
-        
-            Eigen::VectorXd Q_jaco =l_grad+f_jaco.transpose()*V_x_k;
-            Eigen::MatrixXd Q_hess = l_hess + f_jaco.transpose() * V_xx_k * f_jaco;
-            // if(params_->use_DDP){
-            //     // DDP second order term: \sum V_x * Hess(f)
-            //     Eigen::RowVectorXd z_row(nx_ + nu_);
-            //     z_row << x_.row(i), u_.row(i);
-            //     casadi::DM z_row_dm(std::vector<double>(z_row.data(), z_row.data() + z_row.size()));
-                
-            //     // Weight vector V_x_k
-            //     casadi::DM v_x_dm(std::vector<double>(V_x_k.data(), V_x_k.data() + V_x_k.size()));
-                
-            //     auto res = f_hessian_(std::vector<casadi::DM>{z_row_dm, v_x_dm});
-            //     Eigen::Map<Eigen::MatrixXd> tensor_term(res[0].ptr(), nx_ + nu_, nx_ + nu_);
-                
-            //     Q_hess += tensor_term;
-            // }
+        success = backward_pass();
+        if (solve_status_ == LQRSolveStatus::BACKWARD_PASS_FAIL) {
+            return false;
+        }
+        log("INFO","Backward pass successful, starting line search");
+        success = linear_search(params_->alpha_ls_init);
+        return success;
+    }
 
-            // 分块
-            Eigen::VectorXd Q_x = Q_jaco.segment(0, nx_);
-            Eigen::VectorXd Q_u = Q_jaco.segment(nx_, nu_);
-            Eigen::MatrixXd Q_xx = Q_hess.block(0, 0, nx_, nx_);
-            Eigen::MatrixXd Q_uu = Q_hess.block(nx_, nx_, nu_, nu_);
-            Eigen::MatrixXd Q_ux = Q_hess.block(nx_, 0, nu_, nx_);
+    bool ILQR::backward_pass() {
+        bool success = false;
+        Eigen::MatrixXd K_mat = Eigen::MatrixXd::Zero(params_->nu * params_->N, params_->nx);
+        Eigen::MatrixXd d_mat = Eigen::MatrixXd::Zero(params_->N, params_->nu);
+        // Build x_and_u matrix: N rows of [x_k, u_k], plus last row [x_N, zeros]
+        Eigen::MatrixXd x_and_u(params_->N + 1, params_->nx + params_->nu);
+        for (int k = 0; k < params_->N; ++k) {
+            x_and_u.row(k) << x_.row(k), u_.row(k);
+        }
+        log("INFO","Computing gradients and Hessians");
+        x_and_u.row(params_->N) << x_.row(params_->N), Eigen::RowVectorXd::Zero(params_->nu);
+        // 一个矩阵，每一行是一个时间步的代价矩阵
+        auto l_z = cost_factory_->compute_total_gradient(x_and_u);
+        // 一个张量，每一片是一个时间步的代价Hessian矩阵
+        auto l_zz = cost_factory_->compute_total_hessian(x_and_u);
+        // 一个张量，每一片是一个时间步的状态转移函数雅可比矩阵
+        auto f_z = cost_factory_->state_total_jacobian(x_and_u);
+        // 一个张量，每一片是一个时间步的状态转移函数Hessian矩阵(三维张量堆成的四维张量)
+        Eigen::Tensor<double, 4,Eigen::RowMajor> f_zz;
+        if (params_->use_DDP) {
+            f_zz = cost_factory_->state_total_hessian(x_and_u);
+        }
+        // 一个向量，终端状态的代价梯度
+        auto V_x= cost_factory_->compute_terminal_gradient(x_.row(params_->N).transpose());
+        // 一个矩阵，终端状态的代价Hessian矩阵
+        auto V_xx= cost_factory_->compute_terminal_hessian(x_.row(params_->N).transpose());
+        auto V_x_k= V_x;
+        auto V_xx_k= V_xx;
+        for (int i = params_->N - 1; i >= 0; --i) {
+            // 首先从张量中提取对应时间步的雅可比和Hessian矩阵，chip(index,dim)表示在dim维度上提取index切片
+            Eigen::Tensor<double, 2, Eigen::RowMajor> f_jaco_temp = f_z.chip(i, 0).eval();
+            Eigen::Tensor<double, 2, Eigen::RowMajor> l_hess_tensor = l_zz.chip(i,0).eval();
+            Eigen::Map<Eigen::MatrixXd> f_jaco(f_jaco_temp.data(), params_->nx, params_->nx + params_->nu);
+            Eigen::Map<Eigen::MatrixXd> l_hess_mat(l_hess_tensor.data(), params_->nx + params_->nu, params_->nx + params_->nu);
             
-            Eigen::MatrixXd Q_uu_reg = Q_uu + reg * Eigen::MatrixXd::Identity(nu_, nu_);
-            auto Q_uu_det = Q_uu_reg.determinant();
-            if(Q_uu_det <= 1e-6){
-                // 如果矩阵不可逆，增加正则化,重启迭代
-                reg *= 10;
-                success = false;
-                break;
+            auto l_jaco= l_z.row(i);
+            auto Q_z= l_jaco.transpose() + f_jaco.transpose() * V_x_k;
+            Eigen::MatrixXd Q_zz = l_hess_mat + f_jaco.transpose() * V_xx_k * f_jaco;
+
+            if(params_->use_DDP){
+                Eigen::Tensor<double, 3, Eigen::RowMajor> f_hess_temp = f_zz.chip(i,0).eval();
+                // DDP 二阶项修正，不支持向量乘张量，需要逐维处理
+                for(int dim =0; dim < params_->nx; ++dim){
+                    Eigen::Tensor<double, 2, Eigen::RowMajor> f_hess_dim_temp = f_hess_temp.chip(dim,0).eval();
+                    Eigen::Map<Eigen::MatrixXd> f_hess_mat(f_hess_dim_temp.data(), params_->nx + params_->nu, params_->nx + params_->nu);
+                    Q_zz.block(0,0,params_->nx,params_->nx) += V_x_k(dim) * f_hess_mat.block(0,0,params_->nx,params_->nx);
+                }
+            }
+            // 提取Q矩阵的子块
+            Eigen::MatrixXd Q_xx = Q_zz.block(0, 0, params_->nx, params_->nx);
+            Eigen::MatrixXd Q_ux = Q_zz.block(params_->nx, 0, params_->nu, params_->nx);
+            Eigen::MatrixXd Q_uu = Q_zz.block(params_->nx, params_->nx, params_->nu, params_->nu);
+            Eigen::VectorXd Q_x = Q_z.segment(0, params_->nx);
+            Eigen::VectorXd Q_u = Q_z.segment(params_->nx, params_->nu);
+            // 正则化
+            Eigen::MatrixXd Q_uu_reg = Q_uu + reg_ * Eigen::MatrixXd::Identity(params_->nu, params_->nu);
+            Eigen::LLT<Eigen::MatrixXd> llt_quu(Q_uu_reg);
+            if (llt_quu.info() == Eigen::NumericalIssue) {
+                log("WARN","反向传播失败，正则化系数： ", reg_);
+                solve_status_ = LQRSolveStatus::BACKWARD_PASS_FAIL;
+                return false;
             }
 
-            d_.row(i) = Q_uu_reg.ldlt().solve(-Q_u).transpose();
-            
-            Eigen::MatrixXd K_mat = Q_uu_reg.ldlt().solve(-Q_ux);
-            // Store K flattened
-            Eigen::VectorXd K_flat = Eigen::Map<Eigen::VectorXd>(K_mat.data(), K_mat.size());
-            K_.row(i) = K_flat.transpose();
+            d_mat.row(i) = Q_uu_reg.ldlt().solve(-Q_u);
+            K_mat.block(params_->nu * i, 0, params_->nu, params_->nx) = Q_uu_reg.ldlt().solve(-Q_ux);
 
             // Comput V_x, V_xx
-            V_x_k = Q_x + Q_ux.transpose() * d_.row(i).transpose();
-            V_xx_k = Q_xx + Q_ux.transpose() * K_mat;
+            V_x_k = Q_x + Q_ux.transpose() * d_mat.row(i).transpose();
+            V_xx_k = Q_xx + Q_ux.transpose() * K_mat.block(params_->nu * i, 0, params_->nu, params_->nx);
             // 确保V_xx_k是对称的
             V_xx_k = 0.5 * (V_xx_k + V_xx_k.transpose());
 
+            // expected cost reduction
+            delta_V_[0] += (0.5 * d_mat.row(i) * Q_uu * d_mat.row(i).transpose())(0, 0);
+            delta_V_[1] += (d_mat.row(i) * Q_u)(0, 0);
+
             success = true;
         }
-        if (success)
-        {
-            return true; // 成功完成反向传递
-        }
+        d_= d_mat;
+        K_= K_mat;
+        return success;
     }
-    return false;
-}
 
-bool cilqr::forward_pass() {
-    double alpha = alpha_ls_init_; 
-    bool success = false;
-    while(true){
-        success = linear_search(alpha);
-        if(success){
-            logger_->info("Line search success! ");
-            break;
+    bool ILQR::linear_search(double alpha) {
+        curr_cost_= prev_cost_;// 初始化为上次代价
+        for(;alpha >= params_->min_alpha; alpha *= params_->beta_ls){
+            forward_pass(alpha);
+            Eigen::MatrixXd x_and_u(params_->N + 1, params_->nx + params_->nu);
+            for (int k = 0; k < params_->N; ++k) {
+                x_and_u.row(k) << new_x_.row(k), new_u_.row(k);
+            }
+            x_and_u.row(params_->N) << new_x_.row(params_->N), Eigen::RowVectorXd::Zero(params_->nu);
+            double new_cost = cost_factory_->compute_total_cost(x_and_u);
+            double cost_reduction = curr_cost_ - new_cost;
+            if(std::fabs(alpha - params_->alpha_ls_init) < params_->EPS && std::fabs(cost_reduction) < params_->cost_tol){
+                // 代价下降量过小，认为收敛
+                curr_cost_ = new_cost;
+                x_ = new_x_;
+                u_ = new_u_;
+                solve_status_ = LQRSolveStatus::CONVERGED;
+                log("INFO","线搜索: alpha {:.4f}, 代价下降量过小 {:.6f}，认为收敛", alpha, cost_reduction);
+                return true;
+            }
+            double approx_cost_decay = -(alpha * alpha * delta_V_[0] + alpha * delta_V_[1]);
+            if (cost_reduction > 0.0 &&// 代价确实减少
+                (approx_cost_decay < 0.0 ||// 近似衰减为负（预期减少）
+                cost_reduction / approx_cost_decay > 0.1)) { // 实际减少与预期减少比值足够大
+                if (std::fabs(alpha - params_->alpha_ls_init) > params_->EPS) {
+                    solve_status_ = LQRSolveStatus::FORWARD_PASS_SMALL_STEP;
+                }
+                curr_cost_ = new_cost;
+                x_ = new_x_;
+                u_ = new_u_;
+                return true;
+            }
         }
-        if(alpha < params_->min_alpha){
-            logger_->warn("Line search failed in forward pass!alpha: {}", alpha);
-            success = false; // 强制退出
-            break;
-        }
-        alpha *= params_->beta_ls;
-    }
-    return success;
-}
-
-bool cilqr::linear_search(double alpha) {
-    Eigen::MatrixXd new_x = Eigen::MatrixXd::Zero(N_+1, nx_);
-    Eigen::MatrixXd new_u = Eigen::MatrixXd::Zero(N_, nu_);
-    new_x.row(0) = x_.row(0);
-    double max_delta_x = std::numeric_limits<double>::lowest();
-    double max_delta_u = std::numeric_limits<double>::lowest();
-    for (int i = 0; i < N_; ++i) {
-        Eigen::VectorXd delta_x = (new_x.row(i) - x_.row(i)).transpose();
-        // Unflatten K
-        Eigen::VectorXd K_flat = K_.row(i);
-        Eigen::MatrixXd K_mat = Eigen::Map<Eigen::MatrixXd>(K_flat.data(), nu_, nx_);
-        auto du=+ alpha * d_.row(i) + (K_mat * delta_x).transpose();
-        new_u.row(i) = u_.row(i) +du;
-        // 记录最大变化量，作为收敛判断依据
-        if(du.norm() > max_delta_u) {
-            max_delta_u = du.norm();
-        }
-        if(delta_x.norm() > max_delta_x) {
-            max_delta_x = delta_x.norm();
-        }
-
-        Eigen::RowVectorXd z_row(nx_ + nu_);
-        z_row << new_x.row(i), new_u.row(i);
-        casadi::DM k_dm = casadi::DM(i); // time index for constraints
-        auto next_x_res = f_(std::vector<casadi::DM>{casadi::DM(std::vector<double>(z_row.data(), z_row.data() + z_row.size())), k_dm});
-        Eigen::Map<Eigen::VectorXd> next_x_vec(next_x_res[0].ptr(), nx_);
-        new_x.row(i+1) = next_x_vec;
-    }
-    max_delta_u_=max_delta_u;
-    max_delta_x_=max_delta_x;
-    // 计算新轨迹的代价
-    double new_cost = get_total_cost(new_x, new_u);
-    double cost_decay = prev_cost_ - new_cost;
-    if (prev_cost_ > new_cost) {
-        x_ = new_x;
-        u_ = new_u;
-        curr_cost_ = new_cost;
-        return true;
-    } else if (alpha < 1e-3 && std::fabs(cost_decay) < params_->cost_tol) {
-        // 如果步长很小且代价变化很小，认为已经收敛，接受更新
-        logger_->info("Accepting small step due to convergence: alpha={}, cost_decay={}", alpha, cost_decay);
-        x_ = new_x;
-        u_ = new_u;
-        curr_cost_ = new_cost;
-        return true;
-    } else {
+        solve_status_ = LQRSolveStatus::FORWARD_PASS_FAIL;
         return false;
     }
-}
+
+    void ILQR::forward_pass(double alpha) {
+        new_x_.setZero();
+        new_u_.setZero();
+        new_x_.row(0) = x_.row(0);
+        max_delta_u_ = 0;
+        max_delta_x_ = 0;
+        for(int i=0;i<params_->N;++i){
+            Eigen::RowVectorXd u_ff =  alpha * d_.row(i);
+            Eigen::VectorXd u_fb = K_.block(params_->nu * i, 0, params_->nu, params_->nx) * (new_x_.row(i) - x_.row(i)).transpose();
+            Eigen::RowVectorXd du = u_ff + u_fb.transpose();
+            new_u_.row(i) = u_.row(i) + du;
+            auto dx= new_x_.row(i) - x_.row(i);
+            if(dx.norm() > max_delta_x_){
+                max_delta_x_ = dx.norm();
+            }
+            if(du.norm() > max_delta_u_){
+                max_delta_u_ = du.norm();
+            }
+            Eigen::RowVectorXd z_row(params_->nx + params_->nu);
+            z_row << new_x_.row(i), new_u_.row(i);
+            auto next_state = cost_factory_->state_transition(Eigen::VectorXd(z_row.transpose()));
+            new_x_.row(i + 1) = next_state.transpose();
+        }
+    }
 
 } // namespace general
 } // namespace AD_algorithm
