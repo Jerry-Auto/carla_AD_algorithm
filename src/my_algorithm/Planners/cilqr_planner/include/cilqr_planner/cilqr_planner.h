@@ -9,6 +9,8 @@
 #include "general_modules/common_types.h"
 #include "cilqr_planner/cost_define.h"
 #include "cilqr_planner/planner_weight.h"
+#include "cilqr_planner/cost_factory.h"
+#include "cilqr_planner/planner_cost.h"
 
 namespace AD_algorithm {
 namespace planner {
@@ -16,7 +18,7 @@ namespace planner {
 class cilqrPlanner : public PlannerBase {
 private:
     std::shared_ptr<general::ILQR> cilqr_solver_;
-    std::shared_ptr<planner_problem> cilqr_problem_;
+    std::shared_ptr<planner_cost> cilqr_cost_;
     std::shared_ptr<CILQRPlannerparams> planner_params_;
     std::shared_ptr<AD_algorithm::general::FrenetFrame> global_frenet_frame_;
 public:
@@ -42,14 +44,19 @@ public:
 private:
     void solve();
     void set_reference_speed(double v_ref);
-    void set_initial_state(Eigen::VectorXd x0);
+    void set_initial_state(const general::TrajectoryPoint& x0);
+    void set_initial_state(const general::VehicleState& x0);
     std::vector<general::TrajectoryPoint> get_trajectory(double current_time);
-    void set_obstacles(const std::vector<general::Obstacle>& obstacles);
+    void set_obstacles(const std::vector<std::vector<general::Obstacle>>& obstacles);
     void set_road_bounds(const double& lower_bound, const double& upper_bound);
     void set_cost_weights(const Eigen::MatrixXd& Q, const Eigen::MatrixXd& R, const Eigen::MatrixXd& Qf);
-
+    std::vector<general::TrajectoryPoint> traj_densify(const std::vector<general::TrajectoryPoint>& raw_traj, double time_resolution=0.01);
+private:
     std::vector<general::TrajectoryPoint> last_trajectory_;
+    // 复用通用 TrajectoryManager 进行约束校验，轨迹拼接等操作
+    std::shared_ptr<AD_algorithm::general::TrajectoryManager> traj_manager_;
     std::vector<std::vector<general::TrajectoryPoint>> extral_trajectories_;
+    void predict_obstacles(double current_time, const std::vector<general::Obstacle>& obstacles,std::vector<std::vector<general::Obstacle>>& predicted_obstacles);
 };
 
 }}

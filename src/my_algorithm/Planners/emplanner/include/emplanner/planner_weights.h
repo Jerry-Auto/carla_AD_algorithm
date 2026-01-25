@@ -10,15 +10,15 @@ namespace planner {
 struct WeightCoefficients {
     // 路径DP权重
     double path_dp_w_ref = 1.0;
-    double path_dp_w_dl = 0.01;
-    double path_dp_w_ddl = 0.001;
+    double path_dp_w_dl = 0.1;
+    double path_dp_w_ddl = 0.01;
     double path_dp_w_dddl = 0.0001;
     double path_dp_w_obs = 5.0;
 
     // 路径QP权重
     double path_qp_w_ref = 3.0;
-    double path_qp_w_dl = 0.5;
-    double path_qp_w_ddl = 10.00;
+    double path_qp_w_dl = 10.0;
+    double path_qp_w_ddl = 20.00;
     double path_qp_w_dddl = 10.0;
     double path_qp_w_mid = 0.02;
     double path_qp_w_l_end = 0.04;
@@ -33,7 +33,7 @@ struct WeightCoefficients {
 
     // 速度QP权重
     double speed_qp_w_ref_s = 1.0;
-    double speed_qp_w_ref_speed = 5.0;
+    double speed_qp_w_ref_speed = 10.0;
     double speed_qp_w_target_speed = 8.0;
     double speed_qp_w_a = 0.1;
     double speed_qp_w_jerk = 20.0;
@@ -74,7 +74,7 @@ struct SpeedPlannerConfig {
     double s_step_init = 0.3;
     double t_max = 8.0;
     double increase_ratio = 0.2;
-    double s_max = 10;
+    double s_max = 1000.0;  // Increased from 10 to allow longer distance planning
     int dp_poly_pnt_num = 3;
 
     // QP densify
@@ -86,7 +86,7 @@ struct SpeedPlannerConfig {
     // Typical passenger car comfortable ~2-3, aggressive maybe 6-8.
     double max_lateral_acc = 10.0;   // 实际应该小于10，这里为了提高过弯速度
     double min_curve_speed =120.0/3.6;
-    double max_speed = 120.0 / 3.6; // ~33.3 m/s
+    double max_speed =60;
 
     // Longitudinal acceleration bounds (m/s^2)
     double max_acceleration = 100.0;  // was 100.0

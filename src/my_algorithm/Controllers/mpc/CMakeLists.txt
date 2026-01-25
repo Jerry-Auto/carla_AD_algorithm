@@ -37,9 +37,8 @@ target_link_libraries(${PROJECT_NAME}
   Eigen3::Eigen
   OsqpEigen::OsqpEigen
   general_modules::general_modules
-  pidlqr
 )
-
+  
 install(TARGETS ${PROJECT_NAME}
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
@@ -50,6 +49,6 @@ install(DIRECTORY include/ DESTINATION include)
 
 ament_export_include_directories(include)
 ament_export_libraries(${PROJECT_NAME})
-ament_export_dependencies(rclcpp Eigen3 OsqpEigen general_modules)
+ament_export_dependencies(rclcpp Eigen3 OsqpEigen general_modules pidlqr)
 
 ament_package()

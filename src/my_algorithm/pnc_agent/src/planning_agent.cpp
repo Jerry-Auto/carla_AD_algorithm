@@ -3,6 +3,7 @@
 #include "general_modules/csv_logger.h"
 #include "general_modules/math_tool.h"
 #include "tf2/LinearMath/Quaternion.h"
+#include "cilqr_planner/cilqr_planner.h"
 #include "tf2/utils.h"
 #include "rclcpp/qos.hpp"
 #include <filesystem>
@@ -24,7 +25,7 @@ PlanningAgent::PlanningAgent() : Node("planning_agent")
 {
     this->declare_parameter<std::string>("role_name", "ego_vehicle");
     this->get_parameter("role_name", _role_name);
-    this->declare_parameter<std::string>("planner_type", "emplanner");// lattice   emplanner
+    this->declare_parameter<std::string>("planner_type", "cilqr_planner");// lattice   emplanner cilqr_planner
     this->get_parameter("planner_type", _planner_type);
     this->declare_parameter<bool>("enable_planner_log", true);
     this->get_parameter("enable_planner_log", _enable_planner_log);
@@ -96,6 +97,24 @@ PlanningAgent::PlanningAgent() : Node("planning_agent")
     RCLCPP_INFO(this->get_logger(), "可视化工具已初始化");
     RCLCPP_INFO(this->get_logger(), "规划定时器启动，周期: %.3f秒", _planning_time_step);
 }
+
+std::shared_ptr<AD_algorithm::planner::PlannerBase> PlanningAgent::createPlanner(const std::string& type)
+{
+    if (type == "emplanner") {
+        return std::make_shared<EMPlanner>();
+    }
+    // Future: Add other planners here
+    if (type == "lattice") {
+        return std::make_shared<latticePlanner>();
+    }
+    if (type == "cilqr_planner") {
+        return std::make_shared<cilqrPlanner>();
+    }
+    
+    RCLCPP_ERROR(this->get_logger(), "未知规划器类型: %s, 默认使用 EMPlanner", type.c_str());
+    return std::make_shared<EMPlanner>();
+}
+
 
 void PlanningAgent::odometry_cb(const nav_msgs::msg::Odometry::SharedPtr msg)
 {
@@ -375,20 +394,6 @@ std::vector<general::Obstacle> PlanningAgent::convertToPlannerObstacles(
         }
     }
     return obstacles;
-}
-
-std::shared_ptr<AD_algorithm::planner::PlannerBase> PlanningAgent::createPlanner(const std::string& type)
-{
-    if (type == "emplanner") {
-        return std::make_shared<EMPlanner>();
-    }
-    // Future: Add other planners here
-    if (type == "lattice") {
-        return std::make_shared<latticePlanner>();
-    }
-    
-    RCLCPP_ERROR(this->get_logger(), "未知规划器类型: %s, 默认使用 EMPlanner", type.c_str());
-    return std::make_shared<EMPlanner>();
 }
 
 

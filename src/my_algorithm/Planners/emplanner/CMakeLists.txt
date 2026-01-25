@@ -82,7 +82,6 @@ target_link_libraries(planner_test
   Python3::NumPy
 )
 
-
 # 安装可执行文件
 install(
   TARGETS planner_test

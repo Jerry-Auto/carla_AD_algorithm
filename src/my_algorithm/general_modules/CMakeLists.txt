@@ -23,10 +23,10 @@ find_package(tf2_geometry_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(OsqpEigen REQUIRED)
 find_package(Eigen3 REQUIRED)
-find_package(casadi CONFIG REQUIRED)
 
 # 设置库的导出名称
 set(LIBRARY_EXPORT_NAME "${PROJECT_NAME}_targets")
+
 
 # ========================
 # 创建静态库 libgeneral_modules.a
@@ -61,7 +61,6 @@ target_link_libraries(${PROJECT_NAME}
   rclcpp::rclcpp
   tf2::tf2
   tf2_geometry_msgs::tf2_geometry_msgs
-  casadi::casadi
   spdlog
 )
 

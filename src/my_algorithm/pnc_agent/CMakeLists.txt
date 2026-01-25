@@ -26,8 +26,11 @@ find_package(emplanner REQUIRED)
 find_package(lattice REQUIRED)
 find_package(OsqpEigen REQUIRED)
 find_package(ament_index_cpp REQUIRED)
+find_package(casadi REQUIRED)
 find_package(pidlqr REQUIRED)
 find_package(mpc REQUIRED)
+find_package(cilqr_controller REQUIRED)
+find_package(cilqr_planner REQUIRED)
 
 # 添加规划节点
 add_executable(planning_agent src/planning_agent.cpp)
@@ -50,8 +53,10 @@ ament_target_dependencies(planning_agent
   general_modules
   emplanner
   lattice
+  OsqpEigen
+  cilqr_planner
+  casadi
 )
-target_link_libraries(planning_agent OsqpEigen::OsqpEigen)
 
 # 添加控制节点
 add_executable(control_agent src/control_agent.cpp)
@@ -72,8 +77,18 @@ ament_target_dependencies(control_agent
   pidlqr
   mpc
   ament_index_cpp
+  cilqr_controller
+  casadi
 )
 
+target_link_libraries(planning_agent
+  OsqpEigen::OsqpEigen
+  casadi::casadi
+)
+
+target_link_libraries(control_agent
+  casadi::casadi
+)
 # 安装可执行文件
 install(TARGETS planning_agent control_agent
   RUNTIME DESTINATION lib/${PROJECT_NAME}
@@ -103,6 +118,8 @@ ament_export_dependencies(
   OsqpEigen
   pidlqr
   mpc
+  cilqr_controller
+  cilqr_planner
 )
 
 ament_package()

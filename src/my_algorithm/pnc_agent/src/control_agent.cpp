@@ -4,6 +4,8 @@
 #include <ament_index_cpp/get_package_share_directory.hpp>
 #include <filesystem>
 #include <iomanip>
+#include <memory>
+#include "cilqr_controller/cilqr_controller.h"
 #include <sstream>
 #include <ctime>
 
@@ -19,13 +21,13 @@ ControlAgent::ControlAgent() : Node("control_agent")
     // 1. 参数声明与获取
     this->declare_parameter<std::string>("role_name", "ego_vehicle");
     this->get_parameter("role_name", _role_name);
-    this->declare_parameter<std::string>("controller_type", "pid_lqr");
+    this->declare_parameter<std::string>("controller_type", "cilqr");  //mpc cilqr pidlqr
     this->get_parameter("controller_type", _controller_type);
     
     this->declare_parameter<bool>("enable_controller_log", false);
     this->get_parameter("enable_controller_log", _enable_controller_log);
 
-    this->declare_parameter<bool>("enable_file_log", false);
+    this->declare_parameter<bool>("enable_file_log", true);
     this->get_parameter("enable_file_log", _enable_file_log);
     this->declare_parameter<std::string>("file_log_dir", "log");
     this->get_parameter("file_log_dir", _file_log_dir);
@@ -107,6 +109,9 @@ std::shared_ptr<AD_algorithm::controller::ControllerBase> ControlAgent::createCo
         mpc->set_matrix_Q(mpc_q_vector);
         mpc->set_matrix_R(r_vector);
         return mpc;
+    }
+    else if (type == "cilqr") {
+        return std::make_shared<CilqrController>();
     }
     
     RCLCPP_ERROR(this->get_logger(), "未知控制器类型: %s, 默认使用 PidLqrController", type.c_str());

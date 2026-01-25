@@ -24,30 +24,34 @@ find_package(casadi REQUIRED)
 find_package(general_modules REQUIRED)
 find_package(Python3 COMPONENTS Development NumPy REQUIRED)
 
-# Include directories
-include_directories(include)
-include_directories(${EIGEN3_INCLUDE_DIR})
-include_directories(${Python3_INCLUDE_DIRS} ${Python3_NumPy_INCLUDE_DIRS})
 
 # Library
-add_library(${PROJECT_NAME} SHARED
+add_library(${PROJECT_NAME} STATIC
   src/cilqr_planner.cpp
   src/cost_define.cpp
+  src/cost_factory.cpp
+)
+
+target_include_directories(${PROJECT_NAME}
+PUBLIC 
+ $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+ $<INSTALL_INTERFACE:include>
+PRIVATE 
+ src
 )
 
 target_link_libraries(${PROJECT_NAME}
   rclcpp::rclcpp
+  Eigen3::Eigen
   Python3::Python
   Python3::NumPy
-  casadi
+  casadi::casadi
   general_modules::general_modules
 )
 
-set_target_properties(${PROJECT_NAME} PROPERTIES
-  INSTALL_RPATH "/usr/local/lib"
+ament_target_dependencies(${PROJECT_NAME}
+  rclcpp
 )
-
-ament_target_dependencies(${PROJECT_NAME})
 
 # Test executable
 add_executable(${PROJECT_NAME}_test
@@ -59,13 +63,10 @@ target_link_libraries(${PROJECT_NAME}_test
   rclcpp::rclcpp
   Python3::Python
   Python3::NumPy
-  casadi
+  casadi::casadi
   general_modules::general_modules
 )
 
-set_target_properties(${PROJECT_NAME}_test PROPERTIES
-  INSTALL_RPATH "/usr/local/lib"
-)
 
 ament_target_dependencies(${PROJECT_NAME}_test)
 
@@ -81,16 +82,14 @@ target_link_libraries(${test_cost}
   rclcpp::rclcpp
   Python3::Python
   Python3::NumPy
-  casadi
+  casadi::casadi
   general_modules::general_modules
 )
 
-set_target_properties(${test_cost} PROPERTIES
-  INSTALL_RPATH "/usr/local/lib"
-)
 ament_target_dependencies(${test_cost})
 
 install(TARGETS ${PROJECT_NAME}
+  EXPORT ${PROJECT_NAME}
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin
@@ -100,6 +99,7 @@ install(TARGETS
   ${PROJECT_NAME}_test
   DESTINATION lib/${PROJECT_NAME}
 )
+
 install(TARGETS
   ${test_cost}
   DESTINATION lib/${PROJECT_NAME}
@@ -120,5 +120,9 @@ if(BUILD_TESTING)
   #set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
 endif()
+
+ament_export_include_directories(include)
+ament_export_libraries(${PROJECT_NAME})
+ament_export_dependencies(rclcpp std_msgs Eigen3 OsqpEigen general_modules casadi)
 
 ament_package()

@@ -24,6 +24,8 @@
   <depend>mpc</depend>
   <depend>emplanner</depend>
   <depend>lattice</depend>
+  <depend>cilqr_planner</depend>
+  <depend>cilqr_controller</depend>
   <depend>carla_waypoint_types</depend>
 
   <exec_depend>libosqp-dev</exec_depend>

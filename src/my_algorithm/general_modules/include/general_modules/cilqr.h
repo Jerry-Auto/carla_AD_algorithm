@@ -13,12 +13,13 @@ namespace general {
 struct ILQR_params {
     // 线搜索参数
     double alpha_ls_init = 1.0;
-    double beta_ls = 0.8;
+    double beta_ls = 0.5;
     double min_alpha = 1e-4;
     double EPS = 1e-6;
 
     // 正则化参数
-    double reg_max = 1e10;
+    double reg_max = 1e8;
+    double reg_min = 1e-3;
     double reg_init = 1.0;
     double reg_factor = 10.0;
     int max_reg_iter = 10; // 最大正则化尝试次数
@@ -26,7 +27,8 @@ struct ILQR_params {
     // 收敛判定参数
     double delta_u_tol = 1e-4;
     double delta_x_tol = 1e-2;
-    double cost_tol = 10;
+    double cost_tol = 1e-3;
+    double accept_threshold = 0.01; // 线搜索接受阈值
 
     // 全局迭代参数
     int max_iter = 50;      // 最大迭代次数
@@ -52,26 +54,33 @@ class cost_factory {
 public:
     cost_factory()=default;
     ~cost_factory()=default; 
+    // 给出初解,N+1个状态和N个控制N+1*(nx,nu)
+    virtual void get_initial_trajectory(Eigen::MatrixXd& x_init, Eigen::MatrixXd& u_init)=0;
+    // 给工厂设置最终计算，方便下次规划作为初始值
+    void set_result(const Eigen::MatrixXd&u, const Eigen::MatrixXd& x){last_x_=x; last_u_=u;};
     // 状态转移函数，输入是z=[x;u]合并后的向量
     virtual Eigen::VectorXd state_transition(const Eigen::VectorXd& state_and_control)=0;
-    // 计算状态转移函数的雅可比矩阵，输入是z=[x;u]合并后的向量,输出是雅可比矩阵堆成的张量
-    virtual Eigen::Tensor<double, 3,Eigen::RowMajor> state_total_jacobian(const Eigen::MatrixXd& x_and_u)=0;
-    // 计算状态转移函数的Hessian张量，输入是z=[x;u]合并后的向量,输出是Hessian堆成的四维张量
-    virtual Eigen::Tensor<double, 4,Eigen::RowMajor> state_total_hessian(const Eigen::MatrixXd& x_and_u)=0;
-    // 计算总代价，包含原始代价和约束代价，输入是整个轨迹的状态和控制序列{[x,u],...}
+
+    // 计算状态转移函数的雅可比矩阵，输入是z=[x;u]合并后的向量,输出是雅可比矩阵堆成的张量，需要传入N+1个时间步的[x,u](包含终端状态)
+    virtual Eigen::Tensor<double, 3,Eigen::ColMajor> state_total_jacobian(const Eigen::MatrixXd& x_and_u)=0;
+    // 计算状态转移函数的Hessian张量，输入是z=[x;u]合并后的向量,输出是Hessian堆成的四维张量，需要传入N+1个时间步的[x,u](包含终端状态)
+    virtual Eigen::Tensor<double, 4,Eigen::ColMajor> state_total_hessian(const Eigen::MatrixXd& x_and_u)=0;
+
+    
+    // 计算总代价，包含原始代价和约束代价，输入是整个轨迹的状态和控制序列{[x,u],...}，需要传入N+1个时间步的[x,u](包含终端状态)
     virtual double compute_total_cost(const Eigen::MatrixXd& x_and_u)=0;
-    // 计算所有时间步的梯度,输入是整个轨迹的状态和控制{[x,u],...}，输出是每个时间步的梯度按z=[x,u]合并后的形式存储
-    virtual Eigen::MatrixXd compute_total_gradient(const Eigen::MatrixXd& x_and_u)=0;
-    // 计算所有时间步的Hessian,输入是整个轨迹的状态和控制{[x,u],...}，输出是每个时间步的Hessian按z=[x,u]合并后的形式存储
-    virtual Eigen::Tensor<double, 3,Eigen::RowMajor> compute_total_hessian(const Eigen::MatrixXd& x_and_u)=0;
-    // 终端代价的梯度计算
-    virtual Eigen::VectorXd compute_terminal_gradient(const Eigen::VectorXd& x_N)=0;
-    // 终端代价的Hessian计算
-    virtual Eigen::MatrixXd compute_terminal_hessian(const Eigen::VectorXd& x_N)=0;
+
+
+    // 直接获得所有时间步的代价对输入[x,u]的梯度和hessian，包括终端的，放在最后一位，序列长度N+1
+    virtual void get_total_jacobian_hessian(const Eigen::MatrixXd& x_and_u,Eigen::MatrixXd&total_jacbian,Eigen::Tensor<double, 3,Eigen::ColMajor>&total_hessian)=0;
     // 更新乘子和障碍系数等内部状态，在新一轮迭代开始前调用
-    virtual void update(int iter)=0;
+    virtual void update(int iter, const Eigen::MatrixXd& x_and_u)=0;
     // 获取ILQR参数设定
     virtual std::shared_ptr<ILQR_params> get_params() const =0;
+    // 是否使用ALM（用于迭代更新策略）
+    virtual bool use_alm() const =0;
+protected:
+    Eigen::MatrixXd last_x_,last_u_;
 };
 
 
@@ -104,10 +113,8 @@ private:
 
     // 收敛判定参数
     Eigen::Vector2d delta_V_ = {0.0, 0.0};
-    double prev_cost_,curr_cost_,max_delta_u_,max_delta_x_;
 
-    // 是否首次运行
-    bool first_run_ = true;
+    double prev_cost_,curr_cost_,max_delta_u_,max_delta_x_;
 
     // 求解器状态
     LQRSolveStatus solve_status_ = LQRSolveStatus::RUNNING;
@@ -130,13 +137,8 @@ public:
     }
     const Eigen::MatrixXd& get_u() const { return u_; }
     const Eigen::MatrixXd& get_x() const { return x_; }
-    void set_initial_state(const Eigen::VectorXd& x0);
 
 private:
-    // 首次运行产生初始轨迹
-    void get_init_traj();
-    // 不是首次运行，使用上次结果作为初始轨迹
-    void get_init_traj_increment();
     // 定义一个迭代步，返回更新后的控制u、状态x和成本J
     bool iter_step();
     // 反向传播

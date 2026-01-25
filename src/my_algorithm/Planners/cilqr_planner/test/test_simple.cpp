@@ -2,86 +2,133 @@
 #include "cilqr_planner/cost_define.h"
 #include "cilqr_planner/planner_weight.h"
 #include "general_modules/FrenetFrame.h"
+#include "general_modules/common_types.h"
+#include "general_modules/matplotlibcpp.h"
+
+namespace plt = matplotlibcpp;
+
+using namespace AD_algorithm;
 using namespace AD_algorithm::planner;
 using namespace AD_algorithm::general;
 
-int main() {
-    // 测试函数计算是否正确
-    auto planner_params = std::make_shared<CILQRPlannerparams>();
-    auto cilqr_problem = std::make_shared<planner_problem>(planner_params);
-    
-    std::vector<PathPoint> reference_line;
-    for (double s = 0.0; s <= 100.0; s += 1.0) {
-        PathPoint point;
-        point.x = s;
-        point.y = 0.0;
-        point.heading = 0.0;
-        point.accumulated_s = s;
-        reference_line.push_back(point);
+void visualize(
+    const std::vector<general::PathPoint>& reference_path,
+    const std::vector<general::Obstacle>& obstacles,
+    const std::vector<general::TrajectoryPoint>& trajectory,
+    const general::VehicleState& ego)
+{
+    plt::backend("Qt5Agg");
+    plt::figure(1);
+    plt::clf();
+
+    // 1. 绘制参考线
+    std::vector<double> rx, ry;
+    for (const auto& p : reference_path) {
+        rx.push_back(p.x);
+        ry.push_back(p.y);
     }
-    FrenetFrame  frenet_frame(reference_line);
-    cilqr_problem->set_frenet_frame(std::make_shared<FrenetFrame>(frenet_frame));
-    std::cout << "FrenetFrame set successfully." << std::endl;
-    
-        // 构造一组简单的状态和控制序列
-        int N = planner_params->ilqr_params->N;
-        int nx = planner_params->ilqr_params->nx;
-        int nu = planner_params->ilqr_params->nu;
-        Eigen::MatrixXd x_and_u = Eigen::MatrixXd::Zero(N + 1, nx + nu);
-        // 设置第一个状态为参考线起点
-        x_and_u.row(0).head(nx) << reference_line[0].x, reference_line[0].y, reference_line[0].heading, 0.0;
-        // 控制量全为0
-        for (int k = 0; k < N; ++k) {
-            x_and_u.row(k).tail(nu).setZero();
-        }
-        // 终端状态也为参考线终点
-        x_and_u.row(N).head(nx) << reference_line.back().x, reference_line.back().y, reference_line.back().heading, 0.0;
+    plt::plot(rx, ry, {{"color", "blue"}, {"linewidth", "2"}});
+    plt::text(rx.front(), ry.front(), "Reference Start");
 
-        // 1. planner_problem接口计算总代价
-        double cost_api = cilqr_problem->compute_total_cost(x_and_u);
-        std::cout << "planner_problem接口总代价: " << cost_api << std::endl;
+    // 2. 绘制障碍物
+    for (const auto& obs : obstacles) {
+        double half_l = obs.length / 2.0;
+        double half_w = obs.width / 2.0;
 
-        // 2. 手动计算（只考虑Q和R，不考虑约束和障碍）
-        Eigen::MatrixXd Q = Eigen::MatrixXd::Identity(nx, nx);
-        Eigen::MatrixXd R = Eigen::MatrixXd::Identity(nu, nu);
-        double cost_manual = 0.0;
-        for (int k = 0; k < N; ++k) {
-            Eigen::VectorXd xk = x_and_u.row(k).head(nx);
-            Eigen::VectorXd uk = x_and_u.row(k).tail(nu);
-            Eigen::VectorXd ref = Eigen::VectorXd::Zero(nx);
-            ref << reference_line[k].x, reference_line[k].y, reference_line[k].heading, 0.0;
-            Eigen::VectorXd state_error = xk - ref;
-            double stage_cost_x = 0.5 * (state_error.transpose() * Q * state_error)(0,0);
-            double stage_cost_u = 0.5 * (uk.transpose() * R * uk)(0,0);
-            cost_manual += stage_cost_x + stage_cost_u;
-        }
-        // 终端代价
-        Eigen::VectorXd xN = x_and_u.row(N).head(nx);
-        Eigen::VectorXd refN = Eigen::VectorXd::Zero(nx);
-        refN << reference_line.back().x, reference_line.back().y, reference_line.back().heading, 0.0;
-        Eigen::VectorXd state_error_N = xN - refN;
-        cost_manual += 0.5 * (state_error_N.transpose() * Q * state_error_N)(0,0);
-        std::cout << "手动计算总代价: " << cost_manual << std::endl;
+        std::vector<double> ox = {
+            obs.x - half_l, obs.x + half_l,
+            obs.x + half_l, obs.x - half_l,
+            obs.x - half_l
+        };
+        std::vector<double> oy = {
+            obs.y - half_w, obs.y - half_w,
+            obs.y + half_w, obs.y + half_w,
+            obs.y - half_w
+        };
 
-        // 3. 梯度和Hessian接口
-        Eigen::MatrixXd grad_api = cilqr_problem->compute_total_gradient(x_and_u);
-        std::cout << "planner_problem接口梯度范数: " << grad_api.norm() << std::endl;
-        Eigen::Tensor<double, 3, Eigen::RowMajor> hess_api = cilqr_problem->compute_total_hessian(x_and_u);
-        int dim = nx + nu;
-        Eigen::MatrixXd h0 = Eigen::MatrixXd::Zero(dim, dim);
-        for (int i = 0; i < dim; ++i) {
-            for (int j = 0; j < dim; ++j) {
-                h0(i, j) = hess_api(0, i, j);
-            }
-        }
-        std::cout << "planner_problem接口Hessian第0步范数: " << h0.norm() << std::endl;
+        plt::plot(ox, oy, "r");
+        plt::text(obs.x, obs.y, "Obs " + std::to_string(obs.id));
+    }
 
-        // 4. 手动计算梯度（只对第一个时间步，状态部分）
-        Eigen::VectorXd ref0 = Eigen::VectorXd::Zero(nx);
-        ref0 << reference_line[0].x, reference_line[0].y, reference_line[0].heading, 0.0;
-        Eigen::VectorXd grad_manual = Q * (x_and_u.row(0).head(nx) - ref0);
-        std::cout << "手动计算第0步状态梯度: " << grad_manual.transpose() << std::endl;
-        std::cout << "planner_problem接口第0步状态梯度 (API): " << grad_api.row(0).segment(0, nx).transpose() << std::endl;
+    // 3. 绘制规划轨迹
+    std::vector<double> tx, ty;
+    for (const auto& p : trajectory) {
+        tx.push_back(p.x);
+        ty.push_back(p.y);
+    }
+    plt::plot(tx, ty, {{"color", "green"}, {"linewidth", "2"}});
+    plt::text(tx.front(), ty.front(), "Trajectory Start");
 
+    // 4. 绘制自车位置
+    std::vector<double> ex = {ego.x};
+    std::vector<double> ey = {ego.y};
+
+    plt::scatter(ex, ey, 80.0, {{"c", "yellow"}, {"edgecolors", "black"}});
+
+    plt::text(ego.x, ego.y, "Ego");
+
+    // 图形设置
+    plt::xlabel("X (m)");
+    plt::ylabel("Y (m)");
+    plt::title("CILQR Planner Visualization");
+    plt::axis("equal");
+    plt::grid(true);
+    plt::xlim(ego.x - 30.0, ego.x + 30.0);
+    plt::ylim(ego.y - 20.0, ego.y + 30.0);
+
+    plt::pause(0.001);
+}
+
+void test_vehicle_model(){
+    // 测试并可视化车辆状态转移是否正确
+    auto param_=std::make_shared<AD_algorithm::planner::CILQRPlannerparams>();
+    param_->ilqr_params->N=50;
+    param_->ilqr_params->dt=0.1;
+    std::shared_ptr<cilqr_problem> problem=std::make_shared<cilqr_problem>(param_);
+    auto ilqr_solver_=std::make_shared<cilqr_problem>(param_);
+    std::vector<AD_algorithm::general::PathPoint> path_points;
+    for(int i=0;i<100;i++){
+        PathPoint pt;
+        pt.x= i*0.5;
+        pt.y= 0.0;
+        path_points.push_back(pt);
+    }
+    AD_algorithm::general::ReferenceLine frenet_line(path_points);
+    auto frenet_frame_=std::make_shared<AD_algorithm::general::FrenetFrame>(frenet_line);
+    problem->set_frenet_frame(frenet_frame_);
+    general::VehicleState init_state;
+    init_state.x=0.0;
+    init_state.y=0.0;
+    init_state.heading=0.0;
+    init_state.v=10.0;
+    problem->set_initial_state(init_state);
+    std::vector<general::Obstacle> obstacles;
+    general::VehicleState ego_state=init_state;
+    for(int i=0;i<100;i++){
+        // 每次推进0.1秒
+        Eigen::VectorXd state_vec(4);
+        state_vec<<ego_state.x,ego_state.y,ego_state.heading,ego_state.v;
+        Eigen::VectorXd control_vec(2);
+        control_vec<<0.5,0.5; 
+        Eigen::VectorXd su=Eigen::VectorXd(state_vec.size()+control_vec.size());
+        su<<state_vec,control_vec;
+        Eigen::VectorXd next_state_vec=problem->state_transition(su);
+        ego_state.x=next_state_vec(0);
+        ego_state.y=next_state_vec(1);
+        ego_state.heading=next_state_vec(2);
+        ego_state.v=next_state_vec(3);
+
+        std::vector<general::TrajectoryPoint> traj_points;
+        general::TrajectoryPoint tp;
+        tp.x=ego_state.x;
+        tp.y=ego_state.y;
+        traj_points.push_back(tp);
+        visualize(path_points,obstacles,traj_points,ego_state);
+    }
+}
+
+int main() {
+    // test_safe_conversion();
+    test_vehicle_model();
     return 0;
 }

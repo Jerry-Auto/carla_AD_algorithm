@@ -111,6 +111,7 @@ void visualize(
     const std::vector<general::TrajectoryPoint>& trajectory,
     const general::VehicleState& ego)
 {
+    plt::backend("Qt5Agg");
     plt::figure(1);
     plt::clf();
 
@@ -166,14 +167,14 @@ void visualize(
     plt::title("CILQR Planner Visualization");
     plt::axis("equal");
     plt::grid(true);
-    plt::xlim(ego.x - 30.0, ego.x + 100.0);
-    plt::ylim(ego.y - 20.0, ego.y + 80.0);
+    plt::xlim(ego.x - 30.0, ego.x + 30.0);
+    plt::ylim(ego.y - 20.0, ego.y + 30.0);
 
     plt::pause(0.001);
 }
 
 int main() {
-    plt::backend("Qt5Agg");
+    
     std::cout << "CILQR Planner test adapted from Lattice Planner scenario" << std::endl;
 
     // 1. 创建规划器
@@ -194,7 +195,7 @@ int main() {
 
     auto ego = std::make_shared<general::VehicleState>();
     ego->x = reference_path[0].x + 1.0;   // 向右偏1米
-    ego->y = reference_path[0].y - 0.5;   // 向下偏0.5米
+    ego->y = reference_path[0].y + 5;   //
     ego->heading = reference_path[0].heading - 0.1; // 航向略偏左
     ego->v = 1.0;
     ego->ax = 0.0;
@@ -210,7 +211,7 @@ int main() {
         general::Obstacle obs_right; obs_right.id = 105; obs_right.x = 150.0; obs_right.y = -2.0; obs_right.vx = 0.0; obs_right.vy = 0.0; obs_right.length = 4.5; obs_right.width = 2.0; obstacles.push_back(obs_right);
     }
 
-    double reference_speed = 5.0;
+    double reference_speed = 20.0;
     double current_time = 0.0;
 
     // 4. 首次规划
@@ -237,8 +238,8 @@ int main() {
     std::normal_distribution<double> speed_noise(0.0, 0.2);
     std::normal_distribution<double> heading_noise(0.0, 0.03);
 
-    const int total_cycles =50;  // 减少循环次数以适应CILQR
-    double dt_cycle = 1.0;        // 每次规划间隔1秒
+    const int total_cycles =100;  // 减少循环次数以适应CILQR
+    double dt_cycle = 0.1;        // 每次规划间隔0.1秒
     for (int cycle = 1; cycle <= total_cycles; ++cycle) {
         double target_time = current_time + dt_cycle;
         general::FrenetFrame ref_trj(trajectory);
@@ -271,6 +272,7 @@ int main() {
         auto new_traj = planner.plan(ego, obstacles, reference_speed, current_time);
         if (!new_traj.empty()) {
             std::cout << "  ✓ Replanning succeeded. New traj points: " << new_traj.size() << std::endl;
+            std::cout << " 规划速度:"<<new_traj[0].v<<std::endl;
             trajectory = new_traj;
         } else {
             std::cout << "  ✗ Replanning failed at cycle " << cycle << std::endl;

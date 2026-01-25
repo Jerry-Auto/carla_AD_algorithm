@@ -51,9 +51,9 @@ private:
     // logger is after config_ to match constructor initializer order
     //成员函数
     // 生成ST图
-std::vector<std::vector<general::FrenetPoint>> generateSTGraph(
-        const std::vector<std::vector<general::FrenetPoint>>& dynamic_obstacles,
-        double delta_l = 2.0);
+    std::vector<std::vector<general::FrenetPoint>> generateSTGraph(
+            const std::vector<std::vector<general::FrenetPoint>>& dynamic_obstacles,
+            double delta_l = 2.0);
     
     // 加密速度剖面
     void increaseSpeedProfile(std::vector<general::FrenetPoint>& DP_or_QP,double interval);

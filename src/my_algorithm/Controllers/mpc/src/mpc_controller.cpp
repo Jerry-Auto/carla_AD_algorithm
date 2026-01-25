@@ -78,8 +78,12 @@ bool MPCController::compute_control_cmd(
     
     // 4.3 总转向指令
     double steer_cmd = steer_feedback + steer_feedforward;
-    double steer_limit = vehicle_params_->max_steer;
-    steer_cmd = clamp(steer_cmd, -steer_limit, steer_limit);
+    // 对转向角进行限制
+    // 最大范围与速度立方成反比
+    double vx=std::max(ego_state->v, 0.1);
+    double max_steer = 60.0 / std::max(vx*vx*vx, 1.0);
+    double min_steer = 0.05; // 最小转向角限制(rad)
+    steer_cmd = std::max(std::min(steer_cmd, max_steer), -max_steer);
     cmd.set_steer(steer_cmd);
     
     // 4.4 加速度指令

@@ -18,8 +18,6 @@ add_library(${PROJECT_NAME} STATIC
   src/Vehicle_model.cpp
 )
 
-# Provide namespaced alias target for consumers (e.g. pidlqr::pidlqr)
-add_library(${PROJECT_NAME}::${PROJECT_NAME} ALIAS ${PROJECT_NAME})
 
 target_include_directories(${PROJECT_NAME}
   PUBLIC

@@ -8,7 +8,7 @@ endif()
 
 # Default to C++14
 if(NOT CMAKE_CXX_STANDARD)
-  set(CMAKE_CXX_STANDARD 14)
+  set(CMAKE_CXX_STANDARD 17)
 endif()
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
@@ -17,9 +17,48 @@ endif()
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
-# uncomment the following section in order to fill in
-# further dependencies manually.
-# find_package(<dependency> REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(Eigen3 REQUIRED)
+find_package(casadi REQUIRED)
+find_package(general_modules REQUIRED)
+
+# Library
+add_library(${PROJECT_NAME} STATIC
+  src/cilqr_controller.cpp
+  src/cost_define.cpp
+)
+
+target_include_directories(${PROJECT_NAME}
+PUBLIC 
+ $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+ $<INSTALL_INTERFACE:include>
+PRIVATE 
+ src
+)
+
+target_link_libraries(${PROJECT_NAME}
+  rclcpp::rclcpp
+  Eigen3::Eigen
+  casadi::casadi
+  general_modules::general_modules
+)
+
+ament_target_dependencies(${PROJECT_NAME}
+  rclcpp
+  general_modules
+)
+
+install(TARGETS ${PROJECT_NAME}
+  EXPORT ${PROJECT_NAME}
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
+)
+
+install(DIRECTORY
+  include/
+  DESTINATION include/
+)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
@@ -31,5 +70,9 @@ if(BUILD_TESTING)
   #set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
 endif()
+
+ament_export_include_directories(include)
+ament_export_libraries(${PROJECT_NAME})
+ament_export_dependencies(rclcpp Eigen3 OsqpEigen general_modules casadi)
 
 ament_package()
