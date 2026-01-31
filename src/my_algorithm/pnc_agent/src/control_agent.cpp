@@ -24,10 +24,10 @@ ControlAgent::ControlAgent() : Node("control_agent")
     this->declare_parameter<std::string>("controller_type", "cilqr");  //mpc cilqr pidlqr
     this->get_parameter("controller_type", _controller_type);
     
-    this->declare_parameter<bool>("enable_controller_log", false);
+    this->declare_parameter<bool>("enable_controller_log", true);
     this->get_parameter("enable_controller_log", _enable_controller_log);
 
-    this->declare_parameter<bool>("enable_file_log", true);
+    this->declare_parameter<bool>("enable_file_log", false);
     this->get_parameter("enable_file_log", _enable_file_log);
     this->declare_parameter<std::string>("file_log_dir", "log");
     this->get_parameter("file_log_dir", _file_log_dir);

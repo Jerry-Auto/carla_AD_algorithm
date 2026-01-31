@@ -6,6 +6,7 @@
 #include <cmath>
 #include <chrono>
 #include <limits>
+#include "general_modules/tic_toc.h"
 
 using namespace AD_algorithm::general;
 
@@ -44,7 +45,7 @@ std::vector<FrenetPoint> SpeedPlanner::planSpeed(
 
     log("INFO", "Step 5: Speed planning...");
 
-    auto start_time = std::chrono::high_resolution_clock::now();
+    general::TicToc timer;
 
     log("INFO", "Starting speed planning with reference speed: " + std::to_string(reference_speed));
     log("INFO", "Dynamic obstacles: " + std::to_string(dynamic_frenet_obstacles.size()));
@@ -159,10 +160,9 @@ std::vector<FrenetPoint> SpeedPlanner::planSpeed(
     log("INFO", "Increasing speed profile density...");
     increaseSpeedProfile(_qp_speed_profile, config_.final_path_interval);
 
-    auto end_time = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+    double elapsed_ms = timer.toc();
 
-    log("INFO", "Speed planning completed in " + std::to_string(duration.count()) + " ms");
+    log("INFO", "Speed planning completed in " + std::to_string(static_cast<int>(elapsed_ms)) + " ms");
     log("INFO", "Generated " + std::to_string(_qp_speed_profile.size()) + " speed profile points");
     return _qp_speed_profile;
 }

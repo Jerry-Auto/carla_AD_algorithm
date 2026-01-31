@@ -2,6 +2,35 @@
 
 #include <iostream>
 #include <cmath>
+#include <algorithm>
+
+namespace {
+constexpr int kSplineDegree = 5;
+constexpr int kContinuityOrder = 3;  // C0..C3
+
+inline Eigen::Matrix<double, kSplineDegree + 1, 1> DerivativeBasis(double t, int d) {
+    Eigen::Matrix<double, kSplineDegree + 1, 1> basis;
+    basis.setZero();
+    if (d < 0 || d > kSplineDegree) return basis;
+    for (int k = d; k <= kSplineDegree; ++k) {
+        double coeff = 1.0;
+        for (int i = 0; i < d; ++i) {
+            coeff *= static_cast<double>(k - i);
+        }
+        basis(k) = coeff * std::pow(t, k - d);
+    }
+    return basis;
+}
+
+inline int FindSegmentIndex(const std::vector<double>& breaks, double s) {
+    auto it = std::upper_bound(breaks.begin(), breaks.end(), s);
+    int idx = static_cast<int>(it - breaks.begin()) - 1;
+    if (idx < 0) idx = 0;
+    int last = static_cast<int>(breaks.size()) - 2;
+    if (idx > last) idx = last;
+    return idx;
+}
+}
 
 namespace AD_algorithm {
 namespace general {

@@ -3,6 +3,7 @@
 #include <chrono>
 #include <iomanip>
 #include "general_modules/math_tool.h"
+#include "general_modules/tic_toc.h"
 
 namespace AD_algorithm {
 namespace planner {
@@ -114,7 +115,7 @@ std::vector<TrajectoryPoint> EMPlanner::plan(
     double reference_speed,
     double current_time) {
 
-    auto start_time = std::chrono::high_resolution_clock::now();
+    general::TicToc timer;
     log("INFO", "Starting planning cycle at time: " + std::to_string(current_time));
 
     trajectory_manager_->setCurrentTime(current_time);
@@ -239,10 +240,9 @@ std::vector<TrajectoryPoint> EMPlanner::plan(
     log("INFO", "Step 7: Stitching trajectory...");
     final_trajectory = trajectory_manager_->stitchTrajectory(final_trajectory);
 
-    auto end_time = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+    double elapsed_ms = timer.toc();
 
-    log("INFO", "Planning completed in " + std::to_string(duration.count()) + " ms");
+    log("INFO", "Planning completed in " + std::to_string(static_cast<int>(elapsed_ms)) + " ms");
     log("INFO", "Final trajectory has " + std::to_string(final_trajectory.size()) + " points");
 
     return final_trajectory;

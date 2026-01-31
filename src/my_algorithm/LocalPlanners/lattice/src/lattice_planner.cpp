@@ -1,5 +1,6 @@
 #include "lattice/lattice_planner.h"
 #include <iostream>
+#include "general_modules/tic_toc.h"
 
 namespace AD_algorithm {
 namespace planner {
@@ -99,6 +100,8 @@ std::vector<AD_algorithm::general::TrajectoryPoint> latticePlanner::plan(
     double current_time) {
 
   log("INFO", "Starting planning cycle at time: " + std::to_string(current_time));
+  
+  general::TicToc timer;
   
   traj_manager_.setCurrentTime(current_time);
   traj_manager_.updateEgoState(ego_state);
@@ -214,10 +217,18 @@ std::vector<AD_algorithm::general::TrajectoryPoint> latticePlanner::plan(
         log("INFO", "Step 7: Stitching trajectory...");
         std::vector<AD_algorithm::general::TrajectoryPoint> final_trj;
         final_trj = traj_manager_.stitchTrajectory(traj);
+        
+        double elapsed_ms = timer.toc();
+        log("INFO", "Planning completed in " + std::to_string(static_cast<int>(elapsed_ms)) + " ms");
+        
         return final_trj;
     }
   }
   // 未找到满足约束的轨迹
+  
+  double elapsed_ms = timer.toc();
+  log("INFO", "Planning failed after " + std::to_string(static_cast<int>(elapsed_ms)) + " ms");
+  
   return {};
 }
 

@@ -286,34 +286,36 @@ bool PolynomialCurve::try_fit_degree_constrained(int degree, double x1, double y
 }
 
 double PolynomialCurve::value_evaluation(double x, int derivative_order) const {
-    if (derivative_order < 0 || derivative_order > 3) {
+    if (derivative_order < 0 || derivative_order > 3 || order_ < derivative_order) {
         return 0.0;
     }
     
     // 使用平移后的
     double u = x - x_offset_;
     
-    double result = 0.0;
-    
+    // 使用Horner's rule for efficiency
     if (derivative_order == 0) {
-        for (int i = 0; i <= order_; i++) {
-            result += coefficients_[i] * std::pow(u, i);
+        double p = coefficients_(order_);
+        for (int i = order_ - 1; i >= 0; --i) {
+            p = p * u + coefficients_(i);
         }
-    } else if (derivative_order == 1) {
-        for (int i = 1; i <= order_; i++) {
-            result += i * coefficients_[i] * std::pow(u, i - 1);
+        return p;
+    } else {
+        // For derivatives, compute the derivative polynomial coefficients on the fly
+        // But for efficiency, use Horner's rule adapted for derivatives
+        double p = 0.0;
+        for (int i = derivative_order; i <= order_; ++i) {
+            double coeff_deriv = coefficients_(i);
+            for (int k = 0; k < derivative_order; ++k) {
+                coeff_deriv *= (i - k);
+            }
+            if (i - derivative_order >= 0) {
+                double term = coeff_deriv * std::pow(u, i - derivative_order);
+                p += term;
+            }
         }
-    } else if (derivative_order == 2) {
-        for (int i = 2; i <= order_; i++) {
-            result += i * (i - 1) * coefficients_[i] * std::pow(u, i - 2);
-        }
-    } else if (derivative_order == 3) {
-        for (int i = 3; i <= order_; i++) {
-            result += i * (i - 1) * (i - 2) * coefficients_[i] * std::pow(u, i - 3);
-        }
+        return p;
     }
-    
-    return result;
 }
 
 const Eigen::VectorXd& PolynomialCurve::getCoefficients() const { return coefficients_; }

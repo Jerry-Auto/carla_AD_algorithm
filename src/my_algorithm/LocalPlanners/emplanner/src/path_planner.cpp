@@ -3,6 +3,7 @@
 #include "general_modules/polynomial_curve.h"
 #include <algorithm>
 #include <chrono>
+#include "general_modules/tic_toc.h"
 
 namespace AD_algorithm {
 namespace planner {
@@ -60,7 +61,7 @@ std::vector<TrajectoryPoint> PathPlanner::planPath(
     ) {
     // 注意，传入的planning_start_point的s是相对于全局frenet坐标系的原点来计算的
     // static_obstacles也是相对于全局坐标系的S
-    auto start_time = std::chrono::high_resolution_clock::now();
+    general::TicToc timer;
     
     // 验证配置
     if (!config_.validate()) {
@@ -254,10 +255,9 @@ std::vector<TrajectoryPoint> PathPlanner::planPath(
     log("INFO", "Converting to Cartesian coordinates...");
     trajectory_ = frenet_frame->frenet_to_cartesian(qp_path_);
 
-    auto end_time = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+    double elapsed_ms = timer.toc();
     
-    log("INFO", "Path planning completed in " + std::to_string(duration.count()) + " ms");
+    log("INFO", "Path planning completed in " + std::to_string(static_cast<int>(elapsed_ms)) + " ms");
     log("INFO", "Generated " + std::to_string(trajectory_.size()) + " trajectory points");
     return trajectory_;
 }

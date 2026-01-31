@@ -7,6 +7,7 @@
 #include <OsqpEigen/OsqpEigen.h>
 #include <eigen3/Eigen/Sparse>
 #include "general_modules/common_types.h"
+#include "general_modules/spline.h"
 
 namespace AD_algorithm {
 namespace general {
@@ -40,6 +41,11 @@ private:
     
     std::vector<PathPoint> _ref_line;
     bool _flag = false;
+
+    // ===== 新增：分段样条曲线（默认五次） =====
+    Spline<5, 2> _position_spline;
+    std::vector<double> _s_samples;
+    bool _use_spline_profile = false;
 };
 } 
 } 
